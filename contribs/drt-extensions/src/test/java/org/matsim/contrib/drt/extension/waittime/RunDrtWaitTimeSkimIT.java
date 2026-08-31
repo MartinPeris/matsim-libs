@@ -5,6 +5,7 @@ import org.junit.jupiter.api.extension.RegisterExtension;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.EnumMap;
+import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -133,6 +134,12 @@ public class RunDrtWaitTimeSkimIT {
 		((SquareGridZoneSystemParams) skimParams.addOrGetZoneSystemParams()).setCellSize(1000);
 		drtConfig.addParameterSet(skimParams);
 
+		DrtRideTimeSkimParams rideSkimParams = new DrtRideTimeSkimParams();
+		rideSkimParams.setTimeBinSize(3600);
+		// pairs, not single zones, so the cells are coarser to keep them from going empty
+		((SquareGridZoneSystemParams) rideSkimParams.addOrGetZoneSystemParams()).setCellSize(3000);
+		drtConfig.addParameterSet(rideSkimParams);
+
 		mm.addParameterSet(drtConfig);
 		for (DrtConfigGroup cfg : mm.getModalElements()) {
 			DrtConfigs.adjustDrtConfig(cfg, config.scoring(), config.routing());
@@ -178,6 +185,31 @@ public class RunDrtWaitTimeSkimIT {
 		assertThat(tally.getOrDefault(DrtWaitTimeSkim.Source.ZONE_TIME_BIN, 0))
 				.as("lookups answered from this zone and bin: %s", tally)
 				.isPositive();
+
+		// --- the ride-time skim -----------------------------------------------------------------
+
+		for (int iteration = 0; iteration <= LAST_ITERATION; iteration++) {
+			Path csv = Path.of(utils.getOutputDirectory(), "ITERS", "it." + iteration,
+					iteration + ".drtRideTimeSkim_drt.csv");
+			assertThat(csv).as("ride skim CSV for iteration %s", iteration).exists();
+		}
+		Path lastRideCsv = Path.of(utils.getOutputDirectory(), "ITERS", "it." + LAST_ITERATION,
+				LAST_ITERATION + ".drtRideTimeSkim_drt.csv");
+		assertThat(Files.readAllLines(lastRideCsv)).as("observed ride-time factors").hasSizeGreaterThan(1);
+
+		Map<String, DrtRideTimeSkim> rideSkims = controler.getInjector()
+				.getInstance(Key.get(new TypeLiteral<Map<String, DrtRideTimeSkim>>() {}));
+		DrtRideTimeSkim rideSkim = rideSkims.get(TransportMode.drt);
+		assertThat(rideSkim).isNotNull();
+
+		// every observed factor must be a real ride against a real unshared quote, so at least 1.0;
+        // a value below that would mean the reference was wrong rather than the ride fast
+		List<String> rows = Files.readAllLines(lastRideCsv);
+		for (String row : rows.subList(1, rows.size())) {
+			String[] fields = row.split(";");
+			double factor = Double.parseDouble(fields[6]);
+			assertThat(factor).as("ride-time factor in row %s", row).isGreaterThanOrEqualTo(1.0);
+		}
 	}
 
 	private static ActivityParams activity(String type, double typicalDuration) {

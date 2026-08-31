@@ -29,7 +29,9 @@ import org.junit.jupiter.api.Test;
 import org.matsim.api.core.v01.Id;
 import org.matsim.api.core.v01.network.Link;
 import org.matsim.api.core.v01.population.Leg;
+import org.matsim.contrib.drt.extension.waittime.DrtRideTimeSkim;
 import org.matsim.contrib.drt.extension.waittime.DrtWaitTimeSkim;
+import org.matsim.contrib.drt.routing.DrtRoute;
 import org.matsim.contrib.drt.extension.waittime.WaitAwareRaptorIntermodalAccessEgress;
 import org.matsim.core.population.PopulationUtils;
 import org.matsim.core.population.routes.RouteUtils;
@@ -61,12 +63,70 @@ public class WaitAwareIntermodalAccessEgressRaptorIT {
 	private static final double DEPARTURE_TIME = 6.0 * 3600 - 900;
 	private static final double RIDE_TIME = 300;
 	private static final double WAIT = 600;
+	private static final double DIRECT_RIDE_TIME = 200;
+	/** 1.5 * 200 + 600 */
+	private static final double CEILING = 900;
 
 	private static final String DRT = "drt";
 	private static final Id<Link> ORIGIN = Id.createLinkId("origin");
 	private static final Id<Link> STOP_LINK = Id.createLinkId("stop");
 	private static final Id<TransitStopFacility> FROM = Id.create("0", TransitStopFacility.class);
 	private static final Id<TransitStopFacility> TO = Id.create("16", TransitStopFacility.class);
+
+	/**
+	 * The ride-time half, asserted on the route cost rather than on the decorator's return value.
+	 * <p>
+	 * The unambiguous gain is in <em>time</em>: a routed DRT leg carries the constraint ceiling, so
+	 * replacing it with an observed factor times the unshared ride puts the traveller at the stop
+	 * much earlier, where they can catch departures the ceiling had them missing.
+	 */
+	@Test
+	void anObservedRideFactorPutsTheTravellerAtTheStopEarlier() {
+		Harness h = new Harness();
+
+		Routed ceiling = h.routeAtCeilingWithoutRideSkim();
+		Routed observed = h.routeWithRideFactor(1.16);
+
+		double expectedRide = 1.16 * DIRECT_RIDE_TIME;
+		assertThat(observed.waitingTime)
+				.as("arriving %s s earlier turns into that much more slack at the stop",
+						CEILING - expectedRide)
+				.isCloseTo(ceiling.waitingTime + (CEILING - expectedRide), within(1e-6));
+	}
+
+	/**
+	 * On access the cost effect is <em>not</em> automatically a saving, and this is the same trap the
+	 * wait term set. Cutting the modelled ride does not delete that time, it moves it out of the DRT
+	 * vehicle and onto the platform, where the core charges it at {@code mu_wait} instead of at the
+	 * mode's {@code mu_travel}. The route cost therefore moves by
+	 * {@code delta * (mu_travel - mu_wait)}, which is a saving only where riding is dearer than
+	 * waiting. Under MATSim's defaults {@code marginalUtlOfWaitingPt} falls back to the pt mode's
+	 * {@code marginalUtilityOfTraveling}, so the sign depends entirely on the scenario's scoring.
+	 * <p>
+	 * Asserted as an identity rather than as a direction, because the direction is not the point.
+	 */
+	@Test
+	void onAccessTheRideCorrectionTradesInVehicleTimeForPlatformWaitingAtTheirRespectiveRates() {
+		Harness h = new Harness();
+		double muTravel = h.marginalUtilityOfDrtTravelPerSecond();
+		double muWait = h.marginalUtilityOfWaitingPerSecond();
+
+		Routed ceiling = h.routeAtCeilingWithoutRideSkim();
+		Routed observed = h.routeWithRideFactor(1.16);
+
+		double delta = 1.16 * DIRECT_RIDE_TIME - CEILING;   // negative: a shorter modelled ride
+		assertThat(observed.total() - ceiling.total())
+				.isCloseTo(delta * (muTravel - muWait), within(1e-6));
+	}
+
+	@Test
+	void theCorrectedRideNeverClaimsToBeatTheUnsharedRide() {
+		Harness h = new Harness();
+
+		// a factor below 1 is clamped to the unshared ride, so it cannot buy a faster trip
+		assertThat(h.routeWithRideFactor(0.1).waitingTime)
+				.isCloseTo(h.routeWithRideFactor(1.0).waitingTime, within(1e-9));
+	}
 
 	@Test
 	void addingWaitToAccessTimeRefundsAnEqualAmountOfPlatformWaiting() {
@@ -156,18 +216,42 @@ public class WaitAwareIntermodalAccessEgressRaptorIT {
 			return -params.getMarginalUtilityOfWaitingPt_utl_s();
 		}
 
+		double marginalUtilityOfDrtTravelPerSecond() {
+			return -params.getMarginalUtilityOfTravelTime_utl_s(DRT);
+		}
+
 		/** No skim registered for the mode: the decorator is a pass-through, so no wait is added. */
 		Routed routeWithoutSkim() {
-			return route(new WaitAwareRaptorIntermodalAccessEgress(Map.of(), factor(1.0)));
+			return route(new WaitAwareRaptorIntermodalAccessEgress(new DefaultRaptorIntermodalAccessEgress(),
+					Map.of(), 1.0));
 		}
 
 		Routed route(double waitTime, double waitingCostFactor) {
-			return route(new WaitAwareRaptorIntermodalAccessEgress(
-					Map.of(DRT, constantSkim(waitTime)), factor(waitingCostFactor)));
+			return route(new WaitAwareRaptorIntermodalAccessEgress(new DefaultRaptorIntermodalAccessEgress(),
+					Map.of(DRT, constantSkim(waitTime)), waitingCostFactor));
+		}
+
+		/**
+		 * A leg carrying the constraint ceiling, as a routed DRT leg really does, with an observed
+		 * ride-time factor available for its origin-destination pair.
+		 */
+		Routed routeWithRideFactor(double factor) {
+			DrtRideTimeSkim rideSkim = (from, to, time) ->
+					new DrtRideTimeSkim.Lookup(factor, DrtRideTimeSkim.Source.ZONE_PAIR_TIME_BIN);
+			return route(new WaitAwareRaptorIntermodalAccessEgress(new DefaultRaptorIntermodalAccessEgress(),
+					Map.of(), Map.of(DRT, rideSkim), 1.0), List.of(drtLegAtCeiling()));
+		}
+
+		Routed routeAtCeilingWithoutRideSkim() {
+			return route(new WaitAwareRaptorIntermodalAccessEgress(new DefaultRaptorIntermodalAccessEgress(),
+					Map.of(), 1.0), List.of(drtLegAtCeiling()));
 		}
 
 		private Routed route(RaptorIntermodalAccessEgress accessEgress) {
-			List<Leg> routeParts = List.of(drtLeg());
+			return route(accessEgress, List.of(drtLeg()));
+		}
+
+		private Routed route(RaptorIntermodalAccessEgress accessEgress, List<Leg> routeParts) {
 			// exactly what DefaultRaptorStopFinder does with the decorator's return value
 			RIntermodalAccessEgress ae =
 					accessEgress.calcIntermodalAccessEgress(routeParts, params, null, Direction.ACCESS);
@@ -181,12 +265,21 @@ public class WaitAwareIntermodalAccessEgressRaptorIT {
 		}
 	}
 
-	private static WaitAwareRaptorIntermodalAccessEgress.WaitingCostFactor factor(double value) {
-		return new WaitAwareRaptorIntermodalAccessEgress.WaitingCostFactor(value);
-	}
 
 	private static DrtWaitTimeSkim constantSkim(double waitTime) {
 		return (fromLinkId, time) -> new DrtWaitTimeSkim.Lookup(waitTime, DrtWaitTimeSkim.Source.ZONE_TIME_BIN);
+	}
+
+	/** {@code alpha * direct + beta} on the leg, which is what DrtRoute actually puts there. */
+	private static Leg drtLegAtCeiling() {
+		DrtRoute route = new DrtRoute(ORIGIN, STOP_LINK);
+		route.setDirectRideTime(DIRECT_RIDE_TIME);
+		route.setTravelTime(CEILING);
+		Leg leg = PopulationUtils.createLeg(DRT);
+		leg.setRoute(route);
+		leg.setTravelTime(CEILING);
+		leg.setDepartureTime(DEPARTURE_TIME);
+		return leg;
 	}
 
 	private static Leg drtLeg() {

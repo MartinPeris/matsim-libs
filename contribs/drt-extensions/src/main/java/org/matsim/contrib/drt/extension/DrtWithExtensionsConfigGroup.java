@@ -27,6 +27,7 @@ import org.matsim.contrib.drt.extension.insertion.spatialFilter.DrtSpatialReques
 import org.matsim.contrib.drt.extension.operations.DrtOperationsParams;
 import org.matsim.contrib.drt.extension.preemptive_rejection.PreemptiveRejectionParams;
 import org.matsim.contrib.drt.extension.services.services.params.DrtServicesParams;
+import org.matsim.contrib.drt.extension.waittime.DrtRideTimeSkimParams;
 import org.matsim.contrib.drt.extension.waittime.DrtWaitTimeSkimParams;
 import org.matsim.contrib.drt.optimizer.constraints.DrtOptimizationConstraintsSet;
 import org.matsim.contrib.drt.optimizer.constraints.DrtOptimizationConstraintsSetImpl;
@@ -59,6 +60,9 @@ public class DrtWithExtensionsConfigGroup extends DrtConfigGroup {
 	@Nullable
 	private DrtWaitTimeSkimParams waitTimeSkimParams;
 
+	@Nullable
+	private DrtRideTimeSkimParams rideTimeSkimParams;
+
 	public DrtWithExtensionsConfigGroup() {
 		this(DrtOptimizationConstraintsSetImpl::new);
 	}
@@ -86,6 +90,10 @@ public class DrtWithExtensionsConfigGroup extends DrtConfigGroup {
 			params -> waitTimeSkimParams = (DrtWaitTimeSkimParams) params);
 
 		// Optional
+		addDefinition(DrtRideTimeSkimParams.SET_NAME, DrtRideTimeSkimParams::new, () -> rideTimeSkimParams,
+			params -> rideTimeSkimParams = (DrtRideTimeSkimParams) params);
+
+		// Optional
 		addDefinition(PreemptiveRejectionParams.SET_NAME, PreemptiveRejectionParams::new, 
 			() -> preemptiveRejectionParams, params -> preemptiveRejectionParams = (PreemptiveRejectionParams) params);
 	}
@@ -108,6 +116,10 @@ public class DrtWithExtensionsConfigGroup extends DrtConfigGroup {
 
 	public Optional<PreemptiveRejectionParams> getPreemptiveRejectionParams() {
 		return Optional.ofNullable(preemptiveRejectionParams);
+	}
+
+	public Optional<DrtRideTimeSkimParams> getRideTimeSkimParams() {
+		return Optional.ofNullable(rideTimeSkimParams);
 	}
 
 	public Optional<DrtWaitTimeSkimParams> getWaitTimeSkimParams() {

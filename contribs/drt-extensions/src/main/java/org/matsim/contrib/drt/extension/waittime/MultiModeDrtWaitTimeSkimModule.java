@@ -30,6 +30,8 @@ import org.matsim.contrib.drt.run.DrtConfigGroup;
 import org.matsim.contrib.drt.run.MultiModeDrtConfigGroup;
 import org.matsim.core.controler.AbstractModule;
 
+import com.google.inject.multibindings.MapBinder;
+
 import ch.sbb.matsim.routing.pt.raptor.RaptorIntermodalAccessEgress;
 
 /**
@@ -55,28 +57,43 @@ public final class MultiModeDrtWaitTimeSkimModule extends AbstractModule {
 
 	@Override
 	public void install() {
-		Map<String, DrtWaitTimeSkimParams> configured = new LinkedHashMap<>();
+		Map<String, DrtWaitTimeSkimParams> waitConfigured = new LinkedHashMap<>();
+		boolean anyRideConfigured = false;
 
 		for (DrtConfigGroup drtCfg : MultiModeDrtConfigGroup.get(getConfig()).getModalElements()) {
-			Optional<DrtWaitTimeSkimParams> skimParams = getSkimParams(drtCfg);
-			if (skimParams.isPresent()) {
-				log.info("Wait-time skim enabled for DRT mode '{}'", drtCfg.getMode());
-				install(new DrtWaitTimeSkimModule(drtCfg, skimParams.get()));
-				configured.put(drtCfg.getMode(), skimParams.get());
+			Optional<DrtWaitTimeSkimParams> waitParams = getWaitSkimParams(drtCfg);
+			Optional<DrtRideTimeSkimParams> rideParams = getRideSkimParams(drtCfg);
+			if (waitParams.isEmpty() && rideParams.isEmpty()) {
+				continue;
 			}
+			waitParams.ifPresent(p -> log.info("Wait-time skim enabled for DRT mode '{}'", drtCfg.getMode()));
+			rideParams.ifPresent(p -> log.info("Ride-time skim enabled for DRT mode '{}'", drtCfg.getMode()));
+
+			install(new DrtWaitTimeSkimModule(drtCfg, waitParams.orElse(null), rideParams.orElse(null)));
+			waitParams.ifPresent(p -> waitConfigured.put(drtCfg.getMode(), p));
+			anyRideConfigured |= rideParams.isPresent();
 		}
 
-		if (!configured.isEmpty()) {
-			bind(RaptorIntermodalAccessEgress.class).to(WaitAwareRaptorIntermodalAccessEgress.class)
-					.asEagerSingleton();
-			bind(WaitAwareRaptorIntermodalAccessEgress.WaitingCostFactor.class)
-					.toInstance(new WaitAwareRaptorIntermodalAccessEgress.WaitingCostFactor(
-							resolveWaitingCostFactor(configured)));
-		} else {
-			log.warn("{} was installed but no DRT mode declares a '{}' parameter set;"
-							+ " intermodal access/egress cost is unchanged and still ignores waiting time.",
-					MultiModeDrtWaitTimeSkimModule.class.getSimpleName(), DrtWaitTimeSkimParams.SET_NAME);
+		if (waitConfigured.isEmpty() && !anyRideConfigured) {
+			log.warn("{} was installed but no DRT mode declares a '{}' or '{}' parameter set;"
+							+ " intermodal access/egress cost is unchanged and still ignores both waiting"
+							+ " time and observed ride time.",
+					MultiModeDrtWaitTimeSkimModule.class.getSimpleName(), DrtWaitTimeSkimParams.SET_NAME,
+					DrtRideTimeSkimParams.SET_NAME);
+			return;
 		}
+
+		// declare both maps even when only one kind of skim is configured: the decorator injects
+		// both, and a MapBinder that no module ever declares is not an empty map to Guice, it is a
+		// missing binding
+		MapBinder.newMapBinder(binder(), String.class, DrtWaitTimeSkim.class);
+		MapBinder.newMapBinder(binder(), String.class, DrtRideTimeSkim.class);
+
+		bind(RaptorIntermodalAccessEgress.class).to(WaitAwareRaptorIntermodalAccessEgress.class)
+				.asEagerSingleton();
+		bind(WaitAwareRaptorIntermodalAccessEgress.WaitingCostFactor.class)
+				.toInstance(new WaitAwareRaptorIntermodalAccessEgress.WaitingCostFactor(
+						resolveWaitingCostFactor(waitConfigured)));
 	}
 
 	/**
@@ -85,6 +102,10 @@ public final class MultiModeDrtWaitTimeSkimModule extends AbstractModule {
 	 * about it; a config that tries to is a mistake worth failing on rather than silently resolving.
 	 */
 	private static double resolveWaitingCostFactor(Map<String, DrtWaitTimeSkimParams> configured) {
+		if (configured.isEmpty()) {
+			// only ride-time skims are in play; the factor is never consulted
+			return 1.0;
+		}
 		Map<Double, String> byValue = new LinkedHashMap<>();
 		configured.forEach((mode, params) -> byValue.putIfAbsent(params.getWaitingCostFactor(), mode));
 		if (byValue.size() > 1) {
@@ -96,9 +117,15 @@ public final class MultiModeDrtWaitTimeSkimModule extends AbstractModule {
 		return byValue.keySet().iterator().next();
 	}
 
-	private static Optional<DrtWaitTimeSkimParams> getSkimParams(DrtConfigGroup drtCfg) {
+	private static Optional<DrtWaitTimeSkimParams> getWaitSkimParams(DrtConfigGroup drtCfg) {
 		return drtCfg instanceof DrtWithExtensionsConfigGroup extended ?
 				extended.getWaitTimeSkimParams() :
+				Optional.empty();
+	}
+
+	private static Optional<DrtRideTimeSkimParams> getRideSkimParams(DrtConfigGroup drtCfg) {
+		return drtCfg instanceof DrtWithExtensionsConfigGroup extended ?
+				extended.getRideTimeSkimParams() :
 				Optional.empty();
 	}
 }

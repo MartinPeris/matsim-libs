@@ -27,6 +27,7 @@ import com.google.inject.Inject;
 import org.matsim.api.core.v01.population.Leg;
 import org.matsim.api.core.v01.population.Person;
 import org.matsim.api.core.v01.population.PlanElement;
+import org.matsim.contrib.drt.routing.DrtRoute;
 
 import ch.sbb.matsim.routing.pt.raptor.DefaultRaptorIntermodalAccessEgress;
 import ch.sbb.matsim.routing.pt.raptor.RaptorIntermodalAccessEgress;
@@ -34,13 +35,19 @@ import ch.sbb.matsim.routing.pt.raptor.RaptorParameters;
 import ch.sbb.matsim.routing.pt.raptor.RaptorStopFinder.Direction;
 
 /**
- * Adds the expected DRT waiting time to an intermodal access or egress leg, in both elapsed time
- * and cost.
- * <p>
- * {@link DefaultRaptorIntermodalAccessEgress} reads only {@code leg.getTravelTime()}, so a feeder
- * leg whose vehicle arrives in twenty minutes reaches the stop at the same modelled moment, and for
- * the same price, as one whose vehicle is already at the kerb. This decorator adds the observed
- * wait from a {@link DrtWaitTimeSkim} for every leg whose mode has one registered.
+ * Corrects an intermodal access or egress leg with what DRT was actually observed to do, in both
+ * elapsed time and cost. Two independent corrections, either of which may be absent.
+ * <ul>
+ * <li><b>Waiting</b>, from a {@link DrtWaitTimeSkim}. {@link DefaultRaptorIntermodalAccessEgress}
+ * reads only {@code leg.getTravelTime()}, which contains no waiting term at all, so a feeder leg
+ * whose vehicle arrives in twenty minutes reaches the stop at the same modelled moment, and for the
+ * same price, as one whose vehicle is already at the kerb.</li>
+ * <li><b>Ride time</b>, from a {@link DrtRideTimeSkim}. The leg's travel time is the DRT constraint
+ * <em>ceiling</em>, {@code alpha * unshared + beta}, not an expected duration; see
+ * {@link #observedRideTimeDelta}. For a short feeder leg that is several times the unshared ride.</li>
+ * </ul>
+ * Each applies only to legs whose mode has the corresponding skim registered, and each leaves the
+ * leg untouched where nothing has been observed.
  *
  * <h2>Why the full charge applies in both directions</h2>
  *
@@ -94,18 +101,26 @@ public final class WaitAwareRaptorIntermodalAccessEgress implements RaptorInterm
 
 	private final RaptorIntermodalAccessEgress delegate;
 	private final Map<String, DrtWaitTimeSkim> skimsByMode;
+	private final Map<String, DrtRideTimeSkim> rideSkimsByMode;
 	private final double waitingCostFactor;
 
 	@Inject
 	public WaitAwareRaptorIntermodalAccessEgress(Map<String, DrtWaitTimeSkim> skimsByMode,
-			WaitingCostFactor waitingCostFactor) {
-		this(new DefaultRaptorIntermodalAccessEgress(), skimsByMode, waitingCostFactor.value());
+			Map<String, DrtRideTimeSkim> rideSkimsByMode, WaitingCostFactor waitingCostFactor) {
+		this(new DefaultRaptorIntermodalAccessEgress(), skimsByMode, rideSkimsByMode, waitingCostFactor.value());
 	}
 
 	public WaitAwareRaptorIntermodalAccessEgress(RaptorIntermodalAccessEgress delegate,
 			Map<String, DrtWaitTimeSkim> skimsByMode, double waitingCostFactor) {
+		this(delegate, skimsByMode, Map.of(), waitingCostFactor);
+	}
+
+	public WaitAwareRaptorIntermodalAccessEgress(RaptorIntermodalAccessEgress delegate,
+			Map<String, DrtWaitTimeSkim> skimsByMode, Map<String, DrtRideTimeSkim> rideSkimsByMode,
+			double waitingCostFactor) {
 		this.delegate = delegate;
 		this.skimsByMode = Map.copyOf(skimsByMode);
+		this.rideSkimsByMode = Map.copyOf(rideSkimsByMode);
 		this.waitingCostFactor = waitingCostFactor;
 	}
 
@@ -115,32 +130,76 @@ public final class WaitAwareRaptorIntermodalAccessEgress implements RaptorInterm
 		RIntermodalAccessEgress base = delegate.calcIntermodalAccessEgress(legs, params, person, direction);
 
 		double waitTime = 0;
+		double rideTimeDelta = 0;
+		double rideCostDelta = 0;
 		for (PlanElement planElement : legs) {
-			if (!(planElement instanceof Leg leg)) {
-				continue;
-			}
-			DrtWaitTimeSkim skim = skimsByMode.get(leg.getMode());
-			if (skim == null || leg.getRoute() == null) {
+			if (!(planElement instanceof Leg leg) || leg.getRoute() == null) {
 				continue;
 			}
 			double departureTime = leg.getDepartureTime().isDefined() ?
 					leg.getDepartureTime().seconds() :
 					Double.NaN;
-			waitTime += skim.getWaitTime(leg.getRoute().getStartLinkId(), departureTime);
+
+			DrtWaitTimeSkim waitSkim = skimsByMode.get(leg.getMode());
+			if (waitSkim != null) {
+				waitTime += waitSkim.getWaitTime(leg.getRoute().getStartLinkId(), departureTime);
+			}
+
+			double delta = observedRideTimeDelta(leg, departureTime);
+			if (delta != 0) {
+				rideTimeDelta += delta;
+				// the leg's own travel time is priced by the delegate at the mode's marginal utility
+				// of travelling, so a correction to it must be priced the same way
+				rideCostDelta += delta * -params.getMarginalUtilityOfTravelTime_utl_s(leg.getMode());
+			}
 		}
 
-		if (waitTime <= 0) {
+		if (waitTime <= 0 && rideTimeDelta == 0) {
 			return base;
 		}
 
-		// see the class javadoc: the full charge applies in both directions. On access the core
-		// does not charge this wait — it *refunds* an equal amount of platform waiting — so
-		// charging anything less than the full factor makes a longer wait look cheaper.
+		// see the class javadoc: the full wait charge applies in both directions. On access the core
+		// does not charge the wait — it *refunds* an equal amount of platform waiting — so charging
+		// anything less than the full factor makes a longer wait look cheaper.
 		double disutility = base.disutility
-				+ waitTime * waitingCostFactor * -params.getMarginalUtilityOfWaitingPt_utl_s();
+				+ waitTime * waitingCostFactor * -params.getMarginalUtilityOfWaitingPt_utl_s()
+				+ rideCostDelta;
 
-		return new RIntermodalAccessEgress(base.routeParts, disutility, base.travelTime + waitTime,
-				base.direction);
+		return new RIntermodalAccessEgress(base.routeParts, disutility,
+				base.travelTime + waitTime + rideTimeDelta, base.direction);
+	}
+
+	/**
+	 * How much the observed ride-time factor would move this leg's travel time, or zero to leave it
+	 * alone.
+	 * <p>
+	 * A routed DRT leg carries {@code maxTravelDuration}, not an expected duration: {@code DrtRoute}
+	 * sets its travel time from the constraint ceiling and {@code DefaultMainLegRouter} copies that
+	 * onto the leg. Applying the observed factor to the route's own {@code directRideTime} replaces
+	 * that ceiling with a measurement. Where nothing has been observed the leg is left exactly as it
+	 * was, so installing the ride skim changes nothing until it has something to say.
+	 * <p>
+	 * The result is clamped into {@code [directRideTime, leg travel time]}. Below the unshared ride
+	 * is physically impossible; above the constraint ceiling is a trip the operator would have
+	 * rejected. A mean factor drawn from a coarse aggregate can land outside that range for an
+	 * individual pair, and honouring it there would contradict the scenario's own constraints.
+	 */
+	private double observedRideTimeDelta(Leg leg, double departureTime) {
+		DrtRideTimeSkim rideSkim = rideSkimsByMode.get(leg.getMode());
+		if (rideSkim == null || !(leg.getRoute() instanceof DrtRoute route) || !leg.getTravelTime().isDefined()) {
+			return 0;
+		}
+		double directRideTime = route.getDirectRideTime();
+		if (!(directRideTime > 0)) {
+			return 0;
+		}
+		DrtRideTimeSkim.Lookup lookup = rideSkim.lookup(route.getStartLinkId(), route.getEndLinkId(), departureTime);
+		if (!lookup.isMeasured()) {
+			return 0;
+		}
+		double ceiling = leg.getTravelTime().seconds();
+		double observed = Math.min(Math.max(lookup.factor() * directRideTime, directRideTime), ceiling);
+		return observed - ceiling;
 	}
 
 	/**

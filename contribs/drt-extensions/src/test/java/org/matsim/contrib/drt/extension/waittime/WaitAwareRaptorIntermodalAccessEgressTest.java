@@ -12,6 +12,7 @@ import org.matsim.api.core.v01.TransportMode;
 import org.matsim.api.core.v01.network.Link;
 import org.matsim.api.core.v01.population.Leg;
 import org.matsim.core.population.PopulationUtils;
+import org.matsim.contrib.drt.routing.DrtRoute;
 import org.matsim.core.population.routes.RouteUtils;
 
 import ch.sbb.matsim.config.SwissRailRaptorConfigGroup;
@@ -32,6 +33,10 @@ class WaitAwareRaptorIntermodalAccessEgressTest {
 	private static final Id<Link> STOP = Id.createLinkId("stop");
 	private static final double DEPARTURE_TIME = 8 * 3600;
 	private static final double WAIT = 600;
+	private static final double MARGINAL_UTILITY_OF_TRAVELLING_UTL_S = -0.001;
+	private static final double DIRECT_RIDE_TIME = 200;
+	/** 1.5 * 200 + 600, the shape DrtRoute gets from the default constraints. */
+	private static final double CEILING = 900;
 
 	@Test
 	void theWaitLengthensTheLegWhicheverDirectionItIs() {
@@ -145,7 +150,7 @@ class WaitAwareRaptorIntermodalAccessEgressTest {
 	@Test
 	void theSkimIsQueriedAtTheLegsOwnOriginAndDepartureTime() {
 		RecordingSkim skim = new RecordingSkim();
-		new WaitAwareRaptorIntermodalAccessEgress(Map.of(DRT, skim), factor(1.0))
+		new WaitAwareRaptorIntermodalAccessEgress(new DefaultRaptorIntermodalAccessEgress(), Map.of(DRT, skim), 1.0)
 				.calcIntermodalAccessEgress(List.of(drtLeg()), params(), null, Direction.ACCESS);
 
 		assertThat(skim.lastLinkId).isEqualTo(ORIGIN);
@@ -158,11 +163,106 @@ class WaitAwareRaptorIntermodalAccessEgressTest {
 		leg.setDepartureTimeUndefined();
 
 		RecordingSkim skim = new RecordingSkim();
-		new WaitAwareRaptorIntermodalAccessEgress(Map.of(DRT, skim), factor(1.0))
+		new WaitAwareRaptorIntermodalAccessEgress(new DefaultRaptorIntermodalAccessEgress(), Map.of(DRT, skim), 1.0)
 				.calcIntermodalAccessEgress(List.of(leg), params(), null, Direction.ACCESS);
 
 		// zero would quietly resolve to the first time bin, which is a different claim entirely
 		assertThat(skim.lastTime).isNaN();
+	}
+
+	// --- observed ride time ---------------------------------------------------------------------
+
+	/**
+	 * A routed DRT leg carries {@code maxTravelDuration}, not an expected duration. An observed
+	 * factor applied to the route's own {@code directRideTime} replaces that ceiling.
+	 */
+	@Test
+	void anObservedFactorReplacesTheLegsConstraintCeilingWithAMeasurement() {
+		Leg leg = drtLegWithRoute(DIRECT_RIDE_TIME, CEILING);
+		RaptorParameters params = params();
+
+		RIntermodalAccessEgress result = withRideSkim(constantFactor(1.4))
+				.calcIntermodalAccessEgress(List.of(leg), params, null, Direction.ACCESS);
+
+		double expectedRide = 1.4 * DIRECT_RIDE_TIME;   // 280, well inside [200, 900]
+		double delta = expectedRide - CEILING;
+		assertThat(result.travelTime).isCloseTo(CEILING + delta, within(1e-9));
+		assertThat(result.disutility).isCloseTo(
+				baseline(List.of(leg), params, Direction.ACCESS).disutility
+						+ delta * -MARGINAL_UTILITY_OF_TRAVELLING_UTL_S, within(1e-9));
+		// the whole point: routing now sees far less than the ceiling
+		assertThat(result.travelTime).isLessThan(CEILING);
+	}
+
+	/**
+	 * With nothing observed the leg must be left exactly as it was, so installing the ride skim
+	 * changes nothing until it has something to say.
+	 */
+	@Test
+	void anUnmeasuredRideLookupLeavesTheLegAlone() {
+		Leg leg = drtLegWithRoute(DIRECT_RIDE_TIME, CEILING);
+		RaptorParameters params = params();
+
+		RIntermodalAccessEgress result = withRideSkim(
+				(from, to, time) -> new DrtRideTimeSkim.Lookup(Double.NaN, DrtRideTimeSkim.Source.DEFAULT))
+				.calcIntermodalAccessEgress(List.of(leg), params, null, Direction.ACCESS);
+
+		RIntermodalAccessEgress baseline = baseline(List.of(leg), params, Direction.ACCESS);
+		assertThat(result.travelTime).isEqualTo(baseline.travelTime);
+		assertThat(result.disutility).isEqualTo(baseline.disutility);
+	}
+
+	/**
+	 * A factor drawn from a coarse aggregate can imply a ride shorter than the unshared one, which
+	 * is physically impossible, or longer than the ceiling, which the operator would have rejected.
+	 */
+	@Test
+	void theCorrectedRideIsClampedBetweenTheUnsharedRideAndTheCeiling() {
+		RaptorParameters params = params();
+
+		RIntermodalAccessEgress tooFast = withRideSkim(constantFactor(0.1))
+				.calcIntermodalAccessEgress(List.of(drtLegWithRoute(DIRECT_RIDE_TIME, CEILING)), params, null,
+						Direction.ACCESS);
+		assertThat(tooFast.travelTime).as("never faster than the unshared ride")
+				.isCloseTo(DIRECT_RIDE_TIME, within(1e-9));
+
+		RIntermodalAccessEgress tooSlow = withRideSkim(constantFactor(99))
+				.calcIntermodalAccessEgress(List.of(drtLegWithRoute(DIRECT_RIDE_TIME, CEILING)), params, null,
+						Direction.ACCESS);
+		assertThat(tooSlow.travelTime).as("never beyond the constraint ceiling")
+				.isCloseTo(CEILING, within(1e-9));
+	}
+
+	@Test
+	void aLegWhoseRouteCarriesNoDirectRideTimeIsLeftAlone() {
+		// a plain generic route has no directRideTime to scale, so there is nothing to correct
+		Leg leg = drtLeg();
+		RaptorParameters params = params();
+
+		RIntermodalAccessEgress result = withRideSkim(constantFactor(1.4))
+				.calcIntermodalAccessEgress(List.of(leg), params, null, Direction.ACCESS);
+
+		assertThat(result.travelTime).isEqualTo(baseline(List.of(leg), params, Direction.ACCESS).travelTime);
+	}
+
+	private static RaptorIntermodalAccessEgress withRideSkim(DrtRideTimeSkim rideSkim) {
+		return new WaitAwareRaptorIntermodalAccessEgress(new DefaultRaptorIntermodalAccessEgress(), Map.of(),
+				Map.of(DRT, rideSkim), 1.0);
+	}
+
+	private static DrtRideTimeSkim constantFactor(double factor) {
+		return (from, to, time) -> new DrtRideTimeSkim.Lookup(factor, DrtRideTimeSkim.Source.ZONE_PAIR_TIME_BIN);
+	}
+
+	private static Leg drtLegWithRoute(double directRideTime, double ceiling) {
+		DrtRoute route = new DrtRoute(ORIGIN, STOP);
+		route.setDirectRideTime(directRideTime);
+		route.setTravelTime(ceiling);
+		Leg leg = PopulationUtils.createLeg(DRT);
+		leg.setRoute(route);
+		leg.setTravelTime(ceiling);
+		leg.setDepartureTime(DEPARTURE_TIME);
+		return leg;
 	}
 
 	private static RIntermodalAccessEgress baseline(List<Leg> legs, RaptorParameters params, Direction direction) {
@@ -174,12 +274,10 @@ class WaitAwareRaptorIntermodalAccessEgressTest {
 	}
 
 	private static RaptorIntermodalAccessEgress withSkim(DrtWaitTimeSkim skim, double waitingCostFactor) {
-		return new WaitAwareRaptorIntermodalAccessEgress(Map.of(DRT, skim), factor(waitingCostFactor));
+		return new WaitAwareRaptorIntermodalAccessEgress(new DefaultRaptorIntermodalAccessEgress(),
+				Map.of(DRT, skim), waitingCostFactor);
 	}
 
-	private static WaitAwareRaptorIntermodalAccessEgress.WaitingCostFactor factor(double value) {
-		return new WaitAwareRaptorIntermodalAccessEgress.WaitingCostFactor(value);
-	}
 
 	private static Leg drtLeg() {
 		Leg leg = PopulationUtils.createLeg(DRT);
@@ -191,7 +289,7 @@ class WaitAwareRaptorIntermodalAccessEgressTest {
 
 	private static RaptorParameters params() {
 		RaptorParameters params = new RaptorParameters(new SwissRailRaptorConfigGroup());
-		params.setMarginalUtilityOfTravelTime_utl_s(DRT, -0.001);
+		params.setMarginalUtilityOfTravelTime_utl_s(DRT, MARGINAL_UTILITY_OF_TRAVELLING_UTL_S);
 		params.setMarginalUtilityOfTravelTime_utl_s(TransportMode.walk, -0.001);
 		params.setMarginalUtilityOfWaitingPt_utl_s(MARGINAL_UTILITY_OF_WAITING_UTL_S);
 		return params;
