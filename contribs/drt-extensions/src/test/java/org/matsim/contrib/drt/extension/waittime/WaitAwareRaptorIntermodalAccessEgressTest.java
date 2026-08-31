@@ -31,33 +31,79 @@ class WaitAwareRaptorIntermodalAccessEgressTest {
 	private static final Id<Link> ORIGIN = Id.createLinkId("origin");
 	private static final Id<Link> STOP = Id.createLinkId("stop");
 	private static final double DEPARTURE_TIME = 8 * 3600;
+	private static final double WAIT = 600;
 
 	@Test
-	void waitingIsAddedToBothTravelTimeAndDisutility() {
+	void theWaitLengthensTheLegWhicheverDirectionItIs() {
+		List<Leg> legs = List.of(drtLeg());
+		RaptorParameters params = params();
+		RIntermodalAccessEgress baseline = baseline(legs, params, Direction.ACCESS);
+
+		for (Direction direction : Direction.values()) {
+			RIntermodalAccessEgress result = subject(1.0).calcIntermodalAccessEgress(legs, params, null, direction);
+			assertThat(result.travelTime).as("travel time for %s", direction)
+					.isEqualTo(baseline.travelTime + WAIT);
+		}
+	}
+
+	/**
+	 * SwissRailRaptorCore charges an access-side wait once already, by shortening the slack the
+	 * traveller would otherwise have spent waiting at the stop. At a neutral factor there is
+	 * therefore nothing left for this class to add, and adding it anyway would double-count.
+	 */
+	@Test
+	void atANeutralFactorAnAccessWaitAddsNoCostBecauseRaptorAlreadyChargesIt() {
 		List<Leg> legs = List.of(drtLeg());
 		RaptorParameters params = params();
 
-		RIntermodalAccessEgress baseline = new DefaultRaptorIntermodalAccessEgress() //
-				.calcIntermodalAccessEgress(legs, params, null, Direction.ACCESS);
-		RIntermodalAccessEgress withWait = subject(new ConstantSkim(240)) //
+		RIntermodalAccessEgress result = subject(1.0)
 				.calcIntermodalAccessEgress(legs, params, null, Direction.ACCESS);
 
-		assertThat(withWait.travelTime).isEqualTo(baseline.travelTime + 240);
-		assertThat(withWait.disutility) //
-				.isCloseTo(baseline.disutility + 240 * -MARGINAL_UTILITY_OF_WAITING_UTL_S, within(1e-9));
+		assertThat(result.disutility).isCloseTo(baseline(legs, params, Direction.ACCESS).disutility, within(1e-9));
+	}
+
+	/**
+	 * On egress the core adds the access time to the arrival time and the access cost to the total
+	 * with no waiting term at all, so the full cost is ours to charge.
+	 */
+	@Test
+	void atANeutralFactorAnEgressWaitIsChargedInFull() {
+		List<Leg> legs = List.of(drtLeg());
+		RaptorParameters params = params();
+
+		RIntermodalAccessEgress result = subject(1.0)
+				.calcIntermodalAccessEgress(legs, params, null, Direction.EGRESS);
+
+		double expected = baseline(legs, params, Direction.EGRESS).disutility
+				+ WAIT * -MARGINAL_UTILITY_OF_WAITING_UTL_S;
+		assertThat(result.disutility).isCloseTo(expected, within(1e-9));
 	}
 
 	@Test
-	void aFeederWithALongWaitScoresWorseThanAnOtherwiseIdenticalOneWithout() {
+	void aFactorAboveOneChargesOnlyTheExcessOnAccess() {
 		List<Leg> legs = List.of(drtLeg());
 		RaptorParameters params = params();
 
-		double promptDisutility = subject(new ConstantSkim(60)) //
+		RIntermodalAccessEgress result = subject(2.5)
+				.calcIntermodalAccessEgress(legs, params, null, Direction.ACCESS);
+
+		// 2.5 times as onerous as stop waiting, of which Raptor already charges 1.0
+		double expected = baseline(legs, params, Direction.ACCESS).disutility
+				+ WAIT * 1.5 * -MARGINAL_UTILITY_OF_WAITING_UTL_S;
+		assertThat(result.disutility).isCloseTo(expected, within(1e-9));
+	}
+
+	@Test
+	void aLongerWaitCostsMoreThanAShorterOneOnceWaitingIsPricedAsWorseThanStopWaiting() {
+		List<Leg> legs = List.of(drtLeg());
+		RaptorParameters params = params();
+
+		double prompt = withSkim(new ConstantSkim(60), 2.0)
 				.calcIntermodalAccessEgress(legs, params, null, Direction.ACCESS).disutility;
-		double laggardDisutility = subject(new ConstantSkim(1200)) //
+		double laggard = withSkim(new ConstantSkim(1200), 2.0)
 				.calcIntermodalAccessEgress(legs, params, null, Direction.ACCESS).disutility;
 
-		assertThat(laggardDisutility).isGreaterThan(promptDisutility);
+		assertThat(laggard).isGreaterThan(prompt);
 	}
 
 	@Test
@@ -69,9 +115,8 @@ class WaitAwareRaptorIntermodalAccessEgressTest {
 		List<Leg> legs = List.of(walkLeg);
 		RaptorParameters params = params();
 
-		RIntermodalAccessEgress baseline = new DefaultRaptorIntermodalAccessEgress() //
-				.calcIntermodalAccessEgress(legs, params, null, Direction.ACCESS);
-		RIntermodalAccessEgress result = subject(new ConstantSkim(600)) //
+		RIntermodalAccessEgress baseline = baseline(legs, params, Direction.ACCESS);
+		RIntermodalAccessEgress result = subject(3.0)
 				.calcIntermodalAccessEgress(legs, params, null, Direction.ACCESS);
 
 		assertThat(result.travelTime).isEqualTo(baseline.travelTime);
@@ -81,7 +126,8 @@ class WaitAwareRaptorIntermodalAccessEgressTest {
 	@Test
 	void theSkimIsQueriedAtTheLegsOwnOriginAndDepartureTime() {
 		RecordingSkim skim = new RecordingSkim();
-		subject(skim).calcIntermodalAccessEgress(List.of(drtLeg()), params(), null, Direction.ACCESS);
+		new WaitAwareRaptorIntermodalAccessEgress(Map.of(DRT, skim), factor(1.0))
+				.calcIntermodalAccessEgress(List.of(drtLeg()), params(), null, Direction.ACCESS);
 
 		assertThat(skim.lastLinkId).isEqualTo(ORIGIN);
 		assertThat(skim.lastTime).isEqualTo(DEPARTURE_TIME);
@@ -93,14 +139,27 @@ class WaitAwareRaptorIntermodalAccessEgressTest {
 		leg.setDepartureTimeUndefined();
 
 		RecordingSkim skim = new RecordingSkim();
-		subject(skim).calcIntermodalAccessEgress(List.of(leg), params(), null, Direction.ACCESS);
+		new WaitAwareRaptorIntermodalAccessEgress(Map.of(DRT, skim), factor(1.0))
+				.calcIntermodalAccessEgress(List.of(leg), params(), null, Direction.ACCESS);
 
 		// zero would quietly resolve to the first time bin, which is a different claim entirely
 		assertThat(skim.lastTime).isNaN();
 	}
 
-	private static RaptorIntermodalAccessEgress subject(DrtWaitTimeSkim skim) {
-		return new WaitAwareRaptorIntermodalAccessEgress(Map.of(DRT, skim));
+	private static RIntermodalAccessEgress baseline(List<Leg> legs, RaptorParameters params, Direction direction) {
+		return new DefaultRaptorIntermodalAccessEgress().calcIntermodalAccessEgress(legs, params, null, direction);
+	}
+
+	private static RaptorIntermodalAccessEgress subject(double waitingCostFactor) {
+		return withSkim(new ConstantSkim(WAIT), waitingCostFactor);
+	}
+
+	private static RaptorIntermodalAccessEgress withSkim(DrtWaitTimeSkim skim, double waitingCostFactor) {
+		return new WaitAwareRaptorIntermodalAccessEgress(Map.of(DRT, skim), factor(waitingCostFactor));
+	}
+
+	private static WaitAwareRaptorIntermodalAccessEgress.WaitingCostFactor factor(double value) {
+		return new WaitAwareRaptorIntermodalAccessEgress.WaitingCostFactor(value);
 	}
 
 	private static Leg drtLeg() {
@@ -134,7 +193,7 @@ class WaitAwareRaptorIntermodalAccessEgressTest {
 		public Lookup lookup(Id<Link> fromLinkId, double time) {
 			this.lastLinkId = fromLinkId;
 			this.lastTime = time;
-			return new Lookup(120, Source.ZONE_TIME_BIN);
+			return new Lookup(WAIT, Source.ZONE_TIME_BIN);
 		}
 	}
 }

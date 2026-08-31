@@ -19,6 +19,8 @@
 
 package org.matsim.contrib.drt.extension.waittime;
 
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.Optional;
 
 import org.apache.logging.log4j.LogManager;
@@ -53,25 +55,45 @@ public final class MultiModeDrtWaitTimeSkimModule extends AbstractModule {
 
 	@Override
 	public void install() {
-		boolean anyModeConfigured = false;
+		Map<String, DrtWaitTimeSkimParams> configured = new LinkedHashMap<>();
 
 		for (DrtConfigGroup drtCfg : MultiModeDrtConfigGroup.get(getConfig()).getModalElements()) {
 			Optional<DrtWaitTimeSkimParams> skimParams = getSkimParams(drtCfg);
 			if (skimParams.isPresent()) {
 				log.info("Wait-time skim enabled for DRT mode '{}'", drtCfg.getMode());
 				install(new DrtWaitTimeSkimModule(drtCfg, skimParams.get()));
-				anyModeConfigured = true;
+				configured.put(drtCfg.getMode(), skimParams.get());
 			}
 		}
 
-		if (anyModeConfigured) {
+		if (!configured.isEmpty()) {
 			bind(RaptorIntermodalAccessEgress.class).to(WaitAwareRaptorIntermodalAccessEgress.class)
 					.asEagerSingleton();
+			bind(WaitAwareRaptorIntermodalAccessEgress.WaitingCostFactor.class)
+					.toInstance(new WaitAwareRaptorIntermodalAccessEgress.WaitingCostFactor(
+							resolveWaitingCostFactor(configured)));
 		} else {
 			log.warn("{} was installed but no DRT mode declares a '{}' parameter set;"
 							+ " intermodal access/egress cost is unchanged and still ignores waiting time.",
 					MultiModeDrtWaitTimeSkimModule.class.getSimpleName(), DrtWaitTimeSkimParams.SET_NAME);
 		}
+	}
+
+	/**
+	 * The waiting cost factor describes how a traveller feels about waiting for an on-demand
+	 * vehicle, so it is a property of the scenario rather than of a mode. Modes may not disagree
+	 * about it; a config that tries to is a mistake worth failing on rather than silently resolving.
+	 */
+	private static double resolveWaitingCostFactor(Map<String, DrtWaitTimeSkimParams> configured) {
+		Map<Double, String> byValue = new LinkedHashMap<>();
+		configured.forEach((mode, params) -> byValue.putIfAbsent(params.getWaitingCostFactor(), mode));
+		if (byValue.size() > 1) {
+			throw new IllegalStateException(
+					"DRT modes declare conflicting " + DrtWaitTimeSkimParams.SET_NAME + ".waitingCostFactor values: "
+							+ byValue + ". The factor describes the traveller, not the mode, so it must agree"
+							+ " across modes.");
+		}
+		return byValue.keySet().iterator().next();
 	}
 
 	private static Optional<DrtWaitTimeSkimParams> getSkimParams(DrtConfigGroup drtCfg) {

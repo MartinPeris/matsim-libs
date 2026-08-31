@@ -22,6 +22,7 @@ package org.matsim.contrib.drt.extension.waittime;
 import java.io.BufferedWriter;
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
@@ -49,17 +50,24 @@ import org.matsim.core.utils.io.IOUtils;
  * makes it queryable during the next replanning pass.
  * <p>
  * Measurement is not re-implemented here: {@link DrtEventSequenceCollector} already assembles the
- * per-request event sequences, and the wait time is defined exactly as MATSim's own DRT analysis
- * defines it, {@code pickedUp - earliestDepartureTime}, so that a routed wait and a reported wait
- * cannot drift apart.
+ * per-request event sequences, and the wait time uses the same formula MATSim's own DRT analysis
+ * uses, {@code pickedUp - earliestDepartureTime}, measured from readiness rather than from
+ * submission so that a prebooked request is not charged for its own booking lead time.
  * <p>
- * Two properties are deliberate. First, values are blended across iterations rather than replaced,
- * because a skim that is overwritten wholesale each iteration invites the router and the mobsim to
- * chase each other; {@link DrtWaitTimeSkimParams#getSmoothingWeight()} controls the damping, and
- * setting it to 1.0 restores the undamped behaviour. Second, a zone with no observations in a bin
- * inherits a coarser aggregate rather than a constant, and every lookup reports which level it came
- * from.
- * <p>
+ * Three properties are deliberate.
+ * <ul>
+ * <li>Values are blended across iterations rather than replaced, because a skim overwritten
+ * wholesale each iteration invites the router and the mobsim to chase each other.
+ * {@link DrtWaitTimeSkimParams#getSmoothingWeight()} controls the damping; 1.0 restores
+ * replacement.</li>
+ * <li>A zone and bin with no observations inherits a coarser aggregate rather than a constant, and
+ * every lookup reports which level it came from — including whether a zone/bin value is fresh or
+ * merely carried forward from an earlier iteration.</li>
+ * <li>Rejected requests are counted and reported but do not enter the mean. A rejection is an
+ * unbounded wait, and averaging it in would require a number this class has no basis to invent.
+ * The consequence is a systematic optimism wherever rejection is common, which is why the
+ * rejection count sits beside the wait time in the CSV rather than out of sight.</li>
+ * </ul>
  * The published table is an immutable snapshot swapped in at the end of an iteration, so concurrent
  * routing threads always read a consistent skim.
  *
@@ -102,7 +110,8 @@ public final class ZonalDrtWaitTimeSkim implements DrtWaitTimeSkim, IterationEnd
 		if (zoneId != null && timeKnown) {
 			double[] byBin = snapshot.zoneBin.get(zoneId);
 			if (byBin != null && !Double.isNaN(byBin[bin])) {
-				return new Lookup(byBin[bin], Source.ZONE_TIME_BIN);
+				return new Lookup(byBin[bin],
+						snapshot.wasRefreshed(zoneId, bin) ? Source.ZONE_TIME_BIN : Source.ZONE_TIME_BIN_CARRIED);
 			}
 		}
 		if (zoneId != null) {
@@ -124,9 +133,8 @@ public final class ZonalDrtWaitTimeSkim implements DrtWaitTimeSkim, IterationEnd
 	public void notifyIterationEnds(IterationEndsEvent event) {
 		update();
 		if (params.isWriteSkimCsv() && services != null) {
-			String file = services.getControllerIO()
-					.getIterationFilename(event.getIteration(), "drtWaitTimeSkim_" + mode + ".csv");
-			write(file);
+			write(services.getControllerIO()
+					.getIterationFilename(event.getIteration(), "drtWaitTimeSkim_" + mode + ".csv"));
 		}
 	}
 
@@ -135,8 +143,7 @@ public final class ZonalDrtWaitTimeSkim implements DrtWaitTimeSkim, IterationEnd
 	 * tests, which drive the collector directly rather than running a mobsim.
 	 */
 	public void update() {
-		Observations obs = collect();
-		this.data = blend(this.data, obs);
+		this.data = blend(this.data, collect());
 	}
 
 	private Observations collect() {
@@ -146,9 +153,7 @@ public final class ZonalDrtWaitTimeSkim implements DrtWaitTimeSkim, IterationEnd
 
 		for (EventSequence sequence : collector.getPerformedRequestSequences().values()) {
 			double earliestDepartureTime = sequence.getSubmitted().getEarliestDepartureTime();
-			Id<Zone> zoneId = zoneSystem.getZoneForLinkId(sequence.getSubmitted().getFromLinkId())
-					.map(Identifiable::getId)
-					.orElse(null);
+			Id<Zone> zoneId = zoneOf(sequence);
 			if (zoneId == null) {
 				originsOutsideZoneSystem++;
 				continue;
@@ -165,22 +170,49 @@ public final class ZonalDrtWaitTimeSkim implements DrtWaitTimeSkim, IterationEnd
 					pickupsBeforeReadiness++;
 					continue;
 				}
-				obs.add(zoneId, bin, waitTime);
+				obs.addWait(zoneId, bin, waitTime);
 			}
 		}
 
+		for (EventSequence sequence : collector.getRejectedRequestSequences().values()) {
+			Id<Zone> zoneId = zoneOf(sequence);
+			if (zoneId != null) {
+				obs.addRejection(zoneId, binOf(sequence.getSubmitted().getEarliestDepartureTime()));
+			}
+		}
+
+		report(obs, originsOutsideZoneSystem, pickupsBeforeReadiness);
+		return obs;
+	}
+
+	@Nullable
+	private Id<Zone> zoneOf(EventSequence sequence) {
+		return zoneSystem.getZoneForLinkId(sequence.getSubmitted().getFromLinkId())
+				.map(Identifiable::getId)
+				.orElse(null);
+	}
+
+	private void report(Observations obs, int originsOutsideZoneSystem, int pickupsBeforeReadiness) {
 		if (originsOutsideZoneSystem > 0) {
 			// worth saying out loud: these trips are invisible to the skim, so a zone system that
 			// does not cover the service area quietly starves it
 			log.warn("Mode {}: {} DRT requests started outside the wait-time skim's zone system and"
-					+ " were not counted. Check that the zone system covers the service area.",
-					mode, originsOutsideZoneSystem);
+					+ " were not counted. Check that the zone system covers the service area.", mode,
+					originsOutsideZoneSystem);
 		}
 		if (pickupsBeforeReadiness > 0) {
 			log.debug("Mode {}: ignored {} requests picked up before the passenger was ready.", mode,
 					pickupsBeforeReadiness);
 		}
-		return obs;
+		if (obs.totalRejections > 0) {
+			double share = 100.0 * obs.totalRejections / (obs.totalRejections + obs.totalCount);
+			// a rejection is an unbounded wait; leaving it out of the mean makes the skim optimistic
+			// exactly where service is worst, so the rate belongs in the log, not only in the CSV
+			log.warn("Mode {}: {} of {} requests were rejected ({}%). Rejections are counted in the"
+							+ " wait-time skim's CSV but excluded from the mean, so the skim understates"
+							+ " how bad service is in zones that reject often.", mode, obs.totalRejections,
+					obs.totalRejections + obs.totalCount, String.format("%.1f", share));
+		}
 	}
 
 	private SkimData blend(SkimData previous, Observations obs) {
@@ -189,45 +221,57 @@ public final class ZonalDrtWaitTimeSkim implements DrtWaitTimeSkim, IterationEnd
 
 		Map<Id<Zone>, double[]> zoneBin = new HashMap<>();
 		previous.zoneBin.forEach((zoneId, values) -> zoneBin.put(zoneId, values.clone()));
-
 		Map<Id<Zone>, Double> zoneMean = new HashMap<>(previous.zoneMean);
+		Map<Id<Zone>, boolean[]> refreshed = new HashMap<>();
 
 		for (Map.Entry<Id<Zone>, double[]> entry : obs.sums.entrySet()) {
 			Id<Zone> zoneId = entry.getKey();
 			double[] sums = entry.getValue();
 			int[] counts = obs.counts.get(zoneId);
-			double[] target = zoneBin.computeIfAbsent(zoneId, id -> newNaNArray(binCount));
 
 			double zoneSum = 0;
 			int zoneCount = 0;
 			for (int bin = 0; bin < binCount; bin++) {
 				zoneSum += sums[bin];
 				zoneCount += counts[bin];
-				if (counts[bin] >= minObservations) {
-					target[bin] = blendValue(target[bin], sums[bin] / counts[bin], weight);
+				if (!qualifies(counts[bin], minObservations)) {
+					continue;
 				}
+				// only materialise a zone's array once a bin actually earns a value, so that zones
+				// seen but never qualifying do not accumulate all-NaN arrays for the whole run
+				double[] target = zoneBin.computeIfAbsent(zoneId, id -> newNaNArray(binCount));
+				target[bin] = blendValue(target[bin], sums[bin] / counts[bin], weight);
+				refreshed.computeIfAbsent(zoneId, id -> new boolean[binCount])[bin] = true;
 			}
-			if (zoneCount >= minObservations) {
-				zoneMean.merge(zoneId, zoneSum / zoneCount,
-						(prev, observed) -> blendValue(prev, observed, weight));
+			if (qualifies(zoneCount, minObservations)) {
+				zoneMean.merge(zoneId, zoneSum / zoneCount, (prev, observed) -> blendValue(prev, observed, weight));
 			}
 		}
 
 		double[] globalBin = previous.globalBin.clone();
 		for (int bin = 0; bin < binCount; bin++) {
-			if (obs.globalCounts[bin] >= minObservations) {
-				globalBin[bin] = blendValue(globalBin[bin],
-						obs.globalSums[bin] / obs.globalCounts[bin], weight);
+			if (qualifies(obs.globalCounts[bin], minObservations)) {
+				globalBin[bin] = blendValue(globalBin[bin], obs.globalSums[bin] / obs.globalCounts[bin], weight);
 			}
 		}
 
 		double globalMean = previous.globalMean;
-		if (obs.totalCount >= minObservations) {
+		if (qualifies(obs.totalCount, minObservations)) {
 			globalMean = blendValue(globalMean, obs.totalSum / obs.totalCount, weight);
 		}
 
 		return new SkimData(Collections.unmodifiableMap(zoneBin), Collections.unmodifiableMap(zoneMean),
-				globalBin, globalMean, obs.counts);
+				globalBin, globalMean, Collections.unmodifiableMap(refreshed),
+				Collections.unmodifiableMap(obs.counts), Collections.unmodifiableMap(obs.rejections));
+	}
+
+	/**
+	 * A count qualifies only if it is both non-zero and at least the configured threshold. The
+	 * non-zero check is not redundant: a misconfigured threshold of zero would otherwise admit
+	 * empty bins and blend {@code 0.0/0 = NaN} over every good value in the table.
+	 */
+	private static boolean qualifies(int count, int minObservations) {
+		return count > 0 && count >= minObservations;
 	}
 
 	private static double blendValue(double previous, double observed, double weight) {
@@ -243,28 +287,32 @@ public final class ZonalDrtWaitTimeSkim implements DrtWaitTimeSkim, IterationEnd
 
 	private static double[] newNaNArray(int length) {
 		double[] array = new double[length];
-		java.util.Arrays.fill(array, Double.NaN);
+		Arrays.fill(array, Double.NaN);
 		return array;
 	}
 
 	/**
-	 * Writes the published skim, one row per zone and time bin that carries a value. The
-	 * observation count is the number of trips seen in the most recent iteration only, so a row
-	 * with a value but no observations is one carried forward from earlier iterations.
+	 * Writes the published skim: one row per zone and time bin carrying a value, plus every zone and
+	 * bin that saw a rejection. {@code observations} and {@code rejections} count the most recent
+	 * iteration only, so a row with a value but no observations was carried forward from an earlier
+	 * one, and a row with rejections but no wait time is a zone the skim cannot see into at all.
 	 */
 	public void write(String fileName) {
 		SkimData snapshot = this.data;
 		double binSize = params.getTimeBinSize();
 		try (BufferedWriter writer = IOUtils.getBufferedWriter(fileName)) {
-			writer.write(String.join(delimiter, "zone", "timeBin", "binStart", "binEnd",
-					"observationsThisIteration", "waitTime"));
+			writer.write(String.join(delimiter, "zone", "timeBin", "binStart", "binEnd", "observations",
+					"rejections", "waitTime", "carriedForward"));
 			writer.newLine();
-			for (Map.Entry<Id<Zone>, double[]> entry : snapshot.zoneBin.entrySet()) {
-				Id<Zone> zoneId = entry.getKey();
-				double[] values = entry.getValue();
+			for (Id<Zone> zoneId : snapshot.allZones()) {
+				double[] values = snapshot.zoneBin.get(zoneId);
 				int[] counts = snapshot.latestCounts.get(zoneId);
-				for (int bin = 0; bin < values.length; bin++) {
-					if (Double.isNaN(values[bin])) {
+				int[] rejections = snapshot.latestRejections.get(zoneId);
+				for (int bin = 0; bin < binCount; bin++) {
+					double value = values == null ? Double.NaN : values[bin];
+					int observations = counts == null ? 0 : counts[bin];
+					int rejected = rejections == null ? 0 : rejections[bin];
+					if (Double.isNaN(value) && rejected == 0) {
 						continue;
 					}
 					writer.write(String.join(delimiter, //
@@ -272,8 +320,10 @@ public final class ZonalDrtWaitTimeSkim implements DrtWaitTimeSkim, IterationEnd
 							Integer.toString(bin), //
 							Double.toString(bin * binSize), //
 							Double.toString((bin + 1) * binSize), //
-							Integer.toString(counts == null ? 0 : counts[bin]), //
-							Double.toString(values[bin])));
+							Integer.toString(observations), //
+							Integer.toString(rejected), //
+							Double.isNaN(value) ? "" : Double.toString(value), //
+							Boolean.toString(!Double.isNaN(value) && !snapshot.wasRefreshed(zoneId, bin))));
 					writer.newLine();
 				}
 			}
@@ -284,10 +334,23 @@ public final class ZonalDrtWaitTimeSkim implements DrtWaitTimeSkim, IterationEnd
 	}
 
 	private record SkimData(Map<Id<Zone>, double[]> zoneBin, Map<Id<Zone>, Double> zoneMean, double[] globalBin,
-							double globalMean, Map<Id<Zone>, int[]> latestCounts) {
+							double globalMean, Map<Id<Zone>, boolean[]> refreshedThisIteration,
+							Map<Id<Zone>, int[]> latestCounts, Map<Id<Zone>, int[]> latestRejections) {
 
 		static SkimData empty(int binCount) {
-			return new SkimData(Map.of(), Map.of(), newNaNArray(binCount), Double.NaN, Map.of());
+			return new SkimData(Map.of(), Map.of(), newNaNArray(binCount), Double.NaN, Map.of(), Map.of(), Map.of());
+		}
+
+		boolean wasRefreshed(Id<Zone> zoneId, int bin) {
+			boolean[] flags = refreshedThisIteration.get(zoneId);
+			return flags != null && flags[bin];
+		}
+
+		java.util.Set<Id<Zone>> allZones() {
+			java.util.Set<Id<Zone>> zones = new java.util.TreeSet<>(java.util.Comparator.comparing(Id::toString));
+			zones.addAll(zoneBin.keySet());
+			zones.addAll(latestRejections.keySet());
+			return zones;
 		}
 	}
 
@@ -295,10 +358,12 @@ public final class ZonalDrtWaitTimeSkim implements DrtWaitTimeSkim, IterationEnd
 		private final int binCount;
 		private final Map<Id<Zone>, double[]> sums = new HashMap<>();
 		private final Map<Id<Zone>, int[]> counts = new HashMap<>();
+		private final Map<Id<Zone>, int[]> rejections = new HashMap<>();
 		private final double[] globalSums;
 		private final int[] globalCounts;
 		private double totalSum = 0;
 		private int totalCount = 0;
+		private int totalRejections = 0;
 
 		Observations(int binCount) {
 			this.binCount = binCount;
@@ -306,13 +371,18 @@ public final class ZonalDrtWaitTimeSkim implements DrtWaitTimeSkim, IterationEnd
 			this.globalCounts = new int[binCount];
 		}
 
-		void add(Id<Zone> zoneId, int bin, double waitTime) {
+		void addWait(Id<Zone> zoneId, int bin, double waitTime) {
 			sums.computeIfAbsent(zoneId, id -> new double[binCount])[bin] += waitTime;
 			counts.computeIfAbsent(zoneId, id -> new int[binCount])[bin]++;
 			globalSums[bin] += waitTime;
 			globalCounts[bin]++;
 			totalSum += waitTime;
 			totalCount++;
+		}
+
+		void addRejection(Id<Zone> zoneId, int bin) {
+			rejections.computeIfAbsent(zoneId, id -> new int[binCount])[bin]++;
+			totalRejections++;
 		}
 	}
 }

@@ -7,6 +7,7 @@ import java.util.Map;
 import java.util.Optional;
 
 import org.junit.jupiter.api.Test;
+import org.matsim.api.core.v01.Coord;
 import org.matsim.api.core.v01.Id;
 import org.matsim.api.core.v01.events.PersonDepartureEvent;
 import org.matsim.api.core.v01.network.Link;
@@ -21,6 +22,7 @@ import org.matsim.contrib.drt.passenger.events.DrtRequestSubmittedEvent;
 import org.matsim.contrib.dvrp.fleet.DvrpVehicle;
 import org.matsim.contrib.dvrp.optimizer.Request;
 import org.matsim.contrib.dvrp.passenger.PassengerPickedUpEvent;
+import org.matsim.contrib.dvrp.passenger.PassengerRequestRejectedEvent;
 import org.matsim.contrib.dvrp.passenger.PassengerWaitingEvent;
 
 /**
@@ -161,12 +163,67 @@ class ZonalDrtWaitTimeSkimTest {
 		assertThat(f.skim.getWaitTime(LINK_IN_ZONE_A, 600)).isEqualTo(300.0);
 	}
 
+	@Test
+	void aValueNotRefreshedThisIterationIsReportedAsCarriedForwardRatherThanAsObserved() {
+		Fixture f = new Fixture(new DrtWaitTimeSkimParams());
+
+		f.request("r1", "p1", LINK_IN_ZONE_A, 0, 300);
+		f.skim.update();
+		assertThat(f.skim.lookup(LINK_IN_ZONE_A, 0).source()).isEqualTo(Source.ZONE_TIME_BIN);
+
+		// an iteration in which zone A saw nothing: the value survives, but it is no longer a
+		// measurement of the iteration just finished and must not claim to be one
+		f.collector.reset(1);
+		f.skim.update();
+		DrtWaitTimeSkim.Lookup carried = f.skim.lookup(LINK_IN_ZONE_A, 0);
+		assertThat(carried.waitTime()).isEqualTo(300.0);
+		assertThat(carried.source()).isEqualTo(Source.ZONE_TIME_BIN_CARRIED);
+	}
+
+	@Test
+	void rejectionsDoNotEnterTheMean() {
+		Fixture f = new Fixture(new DrtWaitTimeSkimParams());
+
+		f.request("r1", "p1", LINK_IN_ZONE_A, 0, 120);
+		f.rejectedRequest("r2", "p2", LINK_IN_ZONE_A, 0);
+		f.skim.update();
+
+		// a rejection is an unbounded wait, not a long one: averaging it in would need a number
+		// this class has no basis to invent, so the served request stands alone
+		assertThat(f.skim.getWaitTime(LINK_IN_ZONE_A, 0)).isEqualTo(120.0);
+	}
+
+	@Test
+	void aZoneSeenButNeverQualifyingDoesNotRetainAnEmptyRow() {
+		DrtWaitTimeSkimParams params = new DrtWaitTimeSkimParams();
+		params.setMinObservations(5);
+		Fixture f = new Fixture(params);
+
+		f.request("r1", "p1", LINK_IN_ZONE_A, 0, 300);
+		f.skim.update();
+
+		// nothing qualified, so nothing should have been published at any level
+		assertThat(f.skim.lookup(LINK_IN_ZONE_A, 0).source()).isEqualTo(Source.DEFAULT);
+		assertThat(f.skim.lookup(LINK_IN_ZONE_A, Double.NaN).source()).isEqualTo(Source.DEFAULT);
+	}
+
 	private static final class Fixture {
 		private final DrtEventSequenceCollector collector = new DrtEventSequenceCollector(MODE);
 		private final ZonalDrtWaitTimeSkim skim;
 
 		Fixture(DrtWaitTimeSkimParams params) {
 			this.skim = new ZonalDrtWaitTimeSkim(MODE, params, new TwoZoneSystem(), collector, null, ";");
+		}
+
+		void rejectedRequest(String requestId, String personId, Id<Link> fromLink, double readyTime) {
+			Id<Request> rq = Id.create(requestId, Request.class);
+			Id<Person> p = Id.createPersonId(personId);
+			collector.handleEvent(new PersonDepartureEvent(readyTime, p, fromLink, MODE, MODE));
+			collector.handleEvent(new PassengerWaitingEvent(readyTime, MODE, rq, List.of(p)));
+			collector.handleEvent(new DrtRequestSubmittedEvent(readyTime, MODE, rq, List.of(p), fromLink, TO_LINK,
+					0, 0, readyTime, readyTime + 600, readyTime + 1800, 1800, null, null));
+			collector.handleEvent(
+					new PassengerRequestRejectedEvent(readyTime, MODE, rq, List.of(p), "no vehicle available"));
 		}
 
 		void request(String requestId, String personId, Id<Link> fromLink, double readyTime, double waitTime) {
@@ -186,8 +243,8 @@ class ZonalDrtWaitTimeSkimTest {
 	 */
 	private static final class TwoZoneSystem implements ZoneSystem {
 		private final Map<Id<Zone>, Zone> zones = Map.of( //
-				ZONE_A, new ZoneImpl(ZONE_A, null, "test"), //
-				ZONE_B, new ZoneImpl(ZONE_B, null, "test"));
+				ZONE_A, new ZoneImpl(ZONE_A, null, new Coord(0, 0), "test"), //
+				ZONE_B, new ZoneImpl(ZONE_B, null, new Coord(1000, 0), "test"));
 
 		@Override
 		public Optional<Zone> getZoneForLinkId(Id<Link> linkId) {

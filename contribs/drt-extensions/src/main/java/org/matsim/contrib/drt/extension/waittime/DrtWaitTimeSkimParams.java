@@ -77,6 +77,15 @@ public final class DrtWaitTimeSkimParams extends ReflectiveConfigGroupWithConfig
 	private double defaultWaitTime = 300;
 
 	@Parameter
+	@Comment("How onerous waiting for a DRT vehicle is relative to waiting at a transit stop."
+			+ " 1.0, the default, means they are equally onerous, which is the neutral position:"
+			+ " SwissRailRaptor already charges an access-side wait once by shortening the slack at"
+			+ " the stop, so at 1.0 this adds elapsed time but no extra access cost. Above 1.0"
+			+ " prices unscheduled waiting as worse than waiting for a timetabled service.")
+	@PositiveOrZero
+	private double waitingCostFactor = 1.0;
+
+	@Parameter
 	@Comment("Write the skim to a CSV in each iteration directory.")
 	private boolean writeSkimCsv = true;
 
@@ -92,9 +101,11 @@ public final class DrtWaitTimeSkimParams extends ReflectiveConfigGroupWithConfig
 	@Override
 	protected void checkConsistency(Config config) {
 		super.checkConsistency(config);
-		if (smoothingWeight > 1.0) {
+		if (smoothingWeight <= 0 || smoothingWeight > 1.0) {
+			// zero would leave the first iteration's estimate frozen for the whole run while still
+			// reporting itself as measured
 			throw new IllegalArgumentException(
-					SET_NAME + ".smoothingWeight must be in [0,1] but is " + smoothingWeight);
+					SET_NAME + ".smoothingWeight must be in (0,1] but is " + smoothingWeight);
 		}
 	}
 
@@ -146,6 +157,14 @@ public final class DrtWaitTimeSkimParams extends ReflectiveConfigGroupWithConfig
 
 	public void setDefaultWaitTime(double defaultWaitTime) {
 		this.defaultWaitTime = defaultWaitTime;
+	}
+
+	public double getWaitingCostFactor() {
+		return waitingCostFactor;
+	}
+
+	public void setWaitingCostFactor(double waitingCostFactor) {
+		this.waitingCostFactor = waitingCostFactor;
 	}
 
 	public boolean isWriteSkimCsv() {
