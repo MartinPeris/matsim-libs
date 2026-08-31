@@ -47,19 +47,25 @@ class WaitAwareRaptorIntermodalAccessEgressTest {
 	}
 
 	/**
-	 * SwissRailRaptorCore charges an access-side wait once already, by shortening the slack the
-	 * traveller would otherwise have spent waiting at the stop. At a neutral factor there is
-	 * therefore nothing left for this class to add, and adding it anyway would double-count.
+	 * The full charge applies on access too. SwissRailRaptorCore does not charge the DRT wait on
+	 * access — arriving later <em>shortens</em> the platform wait, refunding an equal amount — so
+	 * charging only the excess here would leave a longer wait looking cheaper. The neutrality of
+	 * factor 1.0 on access emerges from that refund cancelling this charge inside the core, not
+	 * from this class declining to charge; see
+	 * {@code ch.sbb.matsim.routing.pt.raptor.WaitAwareIntermodalAccessEgressRaptorIT}, which
+	 * asserts it on the route cost the core actually produces.
 	 */
 	@Test
-	void atANeutralFactorAnAccessWaitAddsNoCostBecauseRaptorAlreadyChargesIt() {
+	void atANeutralFactorAnAccessWaitIsChargedInFullBecauseTheCoreRefundsPlatformWaiting() {
 		List<Leg> legs = List.of(drtLeg());
 		RaptorParameters params = params();
 
 		RIntermodalAccessEgress result = subject(1.0)
 				.calcIntermodalAccessEgress(legs, params, null, Direction.ACCESS);
 
-		assertThat(result.disutility).isCloseTo(baseline(legs, params, Direction.ACCESS).disutility, within(1e-9));
+		double expected = baseline(legs, params, Direction.ACCESS).disutility
+				+ WAIT * -MARGINAL_UTILITY_OF_WAITING_UTL_S;
+		assertThat(result.disutility).isCloseTo(expected, within(1e-9));
 	}
 
 	/**
@@ -79,31 +85,44 @@ class WaitAwareRaptorIntermodalAccessEgressTest {
 		assertThat(result.disutility).isCloseTo(expected, within(1e-9));
 	}
 
+	/**
+	 * The charge does not depend on direction: the same factor is applied at both ends. What
+	 * differs is only what the core does with it afterwards.
+	 */
 	@Test
-	void aFactorAboveOneChargesOnlyTheExcessOnAccess() {
+	void aFactorAboveOneChargesTheFullFactorInBothDirections() {
 		List<Leg> legs = List.of(drtLeg());
 		RaptorParameters params = params();
 
-		RIntermodalAccessEgress result = subject(2.5)
-				.calcIntermodalAccessEgress(legs, params, null, Direction.ACCESS);
+		for (Direction direction : Direction.values()) {
+			RIntermodalAccessEgress result = subject(2.5)
+					.calcIntermodalAccessEgress(legs, params, null, direction);
 
-		// 2.5 times as onerous as stop waiting, of which Raptor already charges 1.0
-		double expected = baseline(legs, params, Direction.ACCESS).disutility
-				+ WAIT * 1.5 * -MARGINAL_UTILITY_OF_WAITING_UTL_S;
-		assertThat(result.disutility).isCloseTo(expected, within(1e-9));
+			double expected = baseline(legs, params, direction).disutility
+					+ WAIT * 2.5 * -MARGINAL_UTILITY_OF_WAITING_UTL_S;
+			assertThat(result.disutility).as("disutility for %s", direction)
+					.isCloseTo(expected, within(1e-9));
+		}
 	}
 
+	/**
+	 * Holds even at the neutral factor. This is what the earlier {@code (factor - 1)} form got
+	 * wrong: at 1.0 it returned the same disutility whatever the wait, so the core's platform-wait
+	 * refund was left uncancelled and a longer wait came out strictly cheaper.
+	 */
 	@Test
-	void aLongerWaitCostsMoreThanAShorterOneOnceWaitingIsPricedAsWorseThanStopWaiting() {
+	void aLongerWaitCostsMoreThanAShorterOneAtEveryFactor() {
 		List<Leg> legs = List.of(drtLeg());
 		RaptorParameters params = params();
 
-		double prompt = withSkim(new ConstantSkim(60), 2.0)
-				.calcIntermodalAccessEgress(legs, params, null, Direction.ACCESS).disutility;
-		double laggard = withSkim(new ConstantSkim(1200), 2.0)
-				.calcIntermodalAccessEgress(legs, params, null, Direction.ACCESS).disutility;
+		for (double factor : new double[] { 1.0, 2.0 }) {
+			double prompt = withSkim(new ConstantSkim(60), factor)
+					.calcIntermodalAccessEgress(legs, params, null, Direction.ACCESS).disutility;
+			double laggard = withSkim(new ConstantSkim(1200), factor)
+					.calcIntermodalAccessEgress(legs, params, null, Direction.ACCESS).disutility;
 
-		assertThat(laggard).isGreaterThan(prompt);
+			assertThat(laggard).as("disutility at factor %s", factor).isGreaterThan(prompt);
+		}
 	}
 
 	@Test

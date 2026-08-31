@@ -79,9 +79,10 @@ public final class DrtWaitTimeSkimParams extends ReflectiveConfigGroupWithConfig
 	@Parameter
 	@Comment("How onerous waiting for a DRT vehicle is relative to waiting at a transit stop."
 			+ " 1.0, the default, means they are equally onerous, which is the neutral position:"
-			+ " SwissRailRaptor already charges an access-side wait once by shortening the slack at"
-			+ " the stop, so at 1.0 this adds elapsed time but no extra access cost. Above 1.0"
-			+ " prices unscheduled waiting as worse than waiting for a timetabled service.")
+			+ " the wait is charged in full at both ends, but on access SwissRailRaptor refunds an"
+			+ " equal amount of platform waiting (arriving later leaves less of it), so the net"
+			+ " effect on an access leg that still makes its connection is zero. Above 1.0 prices"
+			+ " unscheduled waiting as worse than waiting for a timetabled service.")
 	@PositiveOrZero
 	private double waitingCostFactor = 1.0;
 

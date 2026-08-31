@@ -42,23 +42,34 @@ import ch.sbb.matsim.routing.pt.raptor.RaptorStopFinder.Direction;
  * the same price, as one whose vehicle is already at the kerb. This decorator adds the observed
  * wait from a {@link DrtWaitTimeSkim} for every leg whose mode has one registered.
  *
- * <h2>Why the cost is direction-dependent</h2>
+ * <h2>Why the full charge applies in both directions</h2>
  *
- * The returned travel time becomes {@code InitialStop.accessTime}, and SwissRailRaptor does not
- * treat that quantity the same way at both ends of a trip.
+ * The returned travel time becomes {@code InitialStop.accessTime}. It is tempting to think that on
+ * access SwissRailRaptor already charges this wait, and that only the excess is ours to add. It
+ * does not, and an earlier version of this class charged {@code (factor - 1)} on access for that
+ * reason. That was a sign error, and it made a longer wait <i>cheaper</i>.
  * <p>
- * On <b>access</b>, {@code SwissRailRaptorCore} computes the arrival time at the stop as
- * {@code departureTime + accessTime} and then charges {@code (nextDeparture - arrival)} at
+ * {@code SwissRailRaptorCore} computes arrival at the stop as {@code departureTime + accessTime}
+ * and then charges the <i>platform</i> wait, {@code (boardingTime - arrival)}, at
  * {@link RaptorParameters#getMarginalUtilityOfWaitingPt_utl_s()}. Pushing the arrival later by the
- * DRT wait therefore <i>already</i> costs the traveller that wait: it eats into the slack they
- * would otherwise have spent waiting on the platform, at exactly the marginal utility of waiting.
- * Adding a full second charge on top would double-count it — and, less obviously, charging it in
- * both places at the same rate cancels out exactly, leaving the route cost unchanged. So on access
- * this class charges only the <i>excess</i> onerousness of waiting for a DRT vehicle over waiting
- * at a stop.
+ * DRT wait W therefore does not charge W — while the traveller still catches the same vehicle it
+ * <i>shortens</i> the platform wait by exactly W, <i>refunding</i> {@code W * mu_wait}. So the
+ * core's net contribution on access is {@code -W * mu_wait}, not {@code +W * mu_wait}.
  * <p>
- * On <b>egress</b>, the core adds {@code accessTime} to the arrival time and {@code accessCost} to
- * the cost with no waiting term at all, so there is no implicit charge and the full cost applies.
+ * The traveller's total waiting is unchanged by W; only its composition moves, from the platform
+ * into the DRT vehicle. Pricing DRT waiting at {@code factor * mu_wait} and platform waiting at
+ * {@code mu_wait} therefore requires adding the <b>full</b> {@code factor * W * mu_wait} here, in
+ * both directions:
+ *
+ * <pre>
+ * access: factor*W*mu (here) - W*mu (core refund) = (factor-1)*W*mu net  -> 0 at factor 1.0
+ * egress: factor*W*mu (here) + 0  (no wait term)  =  factor   *W*mu net
+ * </pre>
+ *
+ * Both are behaviourally right. On access the traveller swaps platform waiting for DRT waiting, so
+ * at factor 1.0 nothing changes. On egress the wait is purely additional, so it is charged in full.
+ * The asymmetry in the <i>outcome</i> comes from Raptor's structure, not from any asymmetry in what
+ * this class charges.
  * <p>
  * {@link DrtWaitTimeSkimParams#getWaitingCostFactor()} is that relative onerousness: 1.0 means a
  * minute waiting for a DRT vehicle is worth exactly a minute waiting at a stop, which is the
@@ -122,13 +133,11 @@ public final class WaitAwareRaptorIntermodalAccessEgress implements RaptorInterm
 			return base;
 		}
 
-		// see the class javadoc: on access the core already charges the wait once, by shortening
-		// the slack at the stop, so only the excess is ours to add
-		double chargeableFactor = direction == Direction.ACCESS ?
-				waitingCostFactor - 1.0 :
-				waitingCostFactor;
+		// see the class javadoc: the full charge applies in both directions. On access the core
+		// does not charge this wait — it *refunds* an equal amount of platform waiting — so
+		// charging anything less than the full factor makes a longer wait look cheaper.
 		double disutility = base.disutility
-				+ waitTime * chargeableFactor * -params.getMarginalUtilityOfWaitingPt_utl_s();
+				+ waitTime * waitingCostFactor * -params.getMarginalUtilityOfWaitingPt_utl_s();
 
 		return new RIntermodalAccessEgress(base.routeParts, disutility, base.travelTime + waitTime,
 				base.direction);

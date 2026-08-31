@@ -48,37 +48,50 @@ A zone system is a tunable-resolution abstraction that already exists in-tree
 (`org.matsim.contrib.common.zones`), already has DRT plumbing, and keeps the table bounded in all
 three cases. Resolution becomes a config knob rather than a property of the scenario.
 
-## How the cost is applied, and why it is direction-dependent
+## How the cost is applied
 
-This is the subtle part, and getting it wrong makes the feature silently do nothing.
+This is the subtle part, and getting it wrong makes the feature do the opposite of what it should.
 
-The travel time this package returns becomes `InitialStop.accessTime`, and `SwissRailRaptorCore`
-does not treat that quantity symmetrically:
+The travel time this package returns becomes `InitialStop.accessTime`. `SwissRailRaptorCore` handles
+that quantity differently at the two ends of a trip, but — and this is the correction — **the charge
+this package applies is the same in both directions**: `factor × wait × -mu_wait`.
 
-- On **access**, the core computes arrival at the stop as `departureTime + accessTime` and then
-  charges `(nextDeparture - arrival)` at `marginalUtilityOfWaitingPt`. Pushing the arrival later by
-  the DRT wait *already* costs the traveller that wait — it consumes slack they would otherwise have
-  spent waiting on the platform, at exactly the marginal utility of waiting. Adding a second, equal
-  charge on top does not double the penalty; it **cancels out exactly**, leaving the route cost
-  unchanged.
-- On **egress**, the core adds `accessTime` to the arrival time and `accessCost` to the total with
-  no waiting term at all. Nothing is charged implicitly.
+The tempting mistake is to reason that on access the core "already charges" the DRT wait, so only
+the excess `(factor - 1)` is ours to add. An earlier version of this package did exactly that. It is
+a sign error. What the core charges is the *platform* wait, `(boardingTime - arrival)`, and pushing
+the arrival later by W does not add W to that — while the traveller still catches the same vehicle
+it **subtracts** W, *refunding* `W × mu_wait`. The core's net contribution on access is therefore
+`-W × mu_wait`, not `+W × mu_wait`, and charging only `(factor - 1)` leaves that refund uncancelled:
+at the default factor of 1.0 a longer wait came out **strictly cheaper**, by exactly `W × mu_wait`.
 
-So the wait is always added to elapsed time, and the *cost* is:
+The right way to see it: the traveller's *total* waiting is unchanged by W. Only its composition
+moves, out of the platform and into the DRT vehicle. To price DRT waiting at `factor × mu_wait` and
+platform waiting at `mu_wait`, the full amount must be charged here, at both ends:
 
-| Direction | Charged here | Charged by Raptor | Total |
+| Direction | Charged here | Contributed by Raptor | Net effect on route cost |
 | --- | --- | --- | --- |
-| access | `(factor - 1) × wait × -mu_wait` | `1 × wait × -mu_wait` | `factor × wait × -mu_wait` |
+| access | `factor × wait × -mu_wait` | `-1 × wait × -mu_wait` (shorter platform wait) | `(factor - 1) × wait × -mu_wait` |
 | egress | `factor × wait × -mu_wait` | nothing | `factor × wait × -mu_wait` |
+
+Both rows are behaviourally right, and the asymmetry in the *net* column comes from Raptor's
+structure rather than from any asymmetry in what this package charges. On access the traveller swaps
+platform waiting for DRT waiting, so at factor 1.0 nothing changes. On egress the wait is purely
+additional — there is no platform wait to displace — so it is charged in full.
 
 `waitingCostFactor` is how onerous waiting for an on-demand vehicle is *relative to* waiting at a
 transit stop. **1.0, the default, is the neutral position**: a minute is a minute, wherever it is
-spent. At 1.0 an access-side wait adds no extra cost — correctly, because Raptor already charges it —
-and the behavioural effect comes through elapsed time: a long wait still makes the traveller miss the
-connection when it exceeds the slack at the stop, and still makes the whole trip slower and dearer
-against any alternative compared outside Raptor. Above 1.0 prices unscheduled waiting as worse than
-waiting for a timetabled service, which is what stated-preference work generally finds; this package
-does not pick that number for you.
+spent. At 1.0 the *net* access-side effect is zero, not because this package declines to charge, but
+because the charge and the core's refund cancel. The behavioural effect on access then comes through
+elapsed time: a long wait still makes the traveller miss the connection when it exceeds the slack at
+the stop, and still makes the whole trip slower and dearer against any alternative compared outside
+Raptor. Above 1.0 prices unscheduled waiting as worse than waiting for a timetabled service, which is
+what stated-preference work generally finds; this package does not pick that number for you.
+
+Because this reasoning is about the core's behaviour and not about this package's return value, the
+decorator's own unit tests cannot check it — they inspect only the number handed to the core, which
+is what let the sign error survive. `WaitAwareIntermodalAccessEgressRaptorIT` drives
+`SwissRailRaptorCore` end to end and asserts on the resulting route cost, including the invariant
+that a wait must never make a route cheaper at any factor.
 
 ## Where it surfaces
 
