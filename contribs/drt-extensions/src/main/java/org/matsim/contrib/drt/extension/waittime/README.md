@@ -93,6 +93,43 @@ is what let the sign error survive. `WaitAwareIntermodalAccessEgressRaptorIT` dr
 `SwissRailRaptorCore` end to end and asserts on the resulting route cost, including the invariant
 that a wait must never make a route cheaper at any factor.
 
+## Choosing `waitingCostFactor`, and why the default is 1.0
+
+**The default is 1.0 and should stay there.** It is the only value that embeds no unsourced
+behavioural parameter: it says a minute is a minute wherever it is spent, and nothing more. Every
+other value is a claim about a population, and a claim of that kind should be made in a config file
+by whoever can defend it for their scenario, not inherited silently from a library default.
+
+Note what 1.0 does and does not do, because the two ends differ:
+
+- **On egress** the wait is charged in full. Criterion "a plan with a bad wait scores worse" bites
+  directly.
+- **On access**, within the slack at the stop, the net cost effect is exactly zero — correctly, since
+  the traveller does the same total waiting either way. The wait still bites through elapsed time:
+  once it exceeds the slack it costs a connection, discretely and often expensively, and the trip is
+  slower against anything compared outside Raptor.
+
+So if a scenario is access-dominated — a DRT feeder into PT, which is the usual case — then at 1.0
+the *cost* channel does very little and the behaviour comes almost entirely from missed connections.
+If you want the access side to respond to wait length directly, a factor above 1.0 is the only lever
+here.
+
+**Do not reach for `waitingCostFactor` to express "waiting is worse than riding".** That is a
+different statement and there is a different knob for it. MATSim's `marginalUtlOfWaitingPt` defaults
+to the *pt* mode's `marginalUtilityOfTraveling` (`ScoringConfigGroup`), so out of the box waiting is
+priced exactly like sitting on the train — which stated-preference work broadly contradicts, usually
+putting waiting somewhere around 1.5–2.5× in-vehicle time. The fix for that is
+`scoring.waitingPt`, and it correctly applies to platform waiting too. `waitingCostFactor` means only
+"DRT waiting relative to *platform* waiting". Using it to compensate for an unset `waitingPt` would
+conflate the two and would apply the correction to DRT legs alone.
+
+The defensible reason to raise `waitingCostFactor` above 1.0 is narrower and worth stating plainly:
+this skim returns a **mean**, and waiting for an on-demand vehicle is less predictable than waiting
+for a timetabled one. Travellers respond to the distribution, not just its first moment, and the
+unreliability premium is real. A factor in the region of 1.2–1.5 is a crude proxy for that variance
+penalty. It is a proxy, though, not a measurement, and it should be calibrated rather than assumed —
+which is exactly why it is not the default.
+
 ## Where it surfaces
 
 1. **In routing and scoring**, via `WaitAwareRaptorIntermodalAccessEgress`, as above.
