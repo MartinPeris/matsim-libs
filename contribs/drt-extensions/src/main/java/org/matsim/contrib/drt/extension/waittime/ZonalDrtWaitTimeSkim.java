@@ -35,6 +35,7 @@ import org.apache.logging.log4j.Logger;
 import org.matsim.api.core.v01.Id;
 import org.matsim.api.core.v01.Identifiable;
 import org.matsim.api.core.v01.network.Link;
+import org.matsim.api.core.v01.network.Network;
 import org.matsim.contrib.common.zones.Zone;
 import org.matsim.contrib.common.zones.ZoneSystem;
 import org.matsim.contrib.drt.analysis.DrtEventSequenceCollector;
@@ -80,6 +81,7 @@ public final class ZonalDrtWaitTimeSkim implements DrtWaitTimeSkim, IterationEnd
 	private final String mode;
 	private final DrtWaitTimeSkimParams params;
 	private final ZoneSystem zoneSystem;
+	private final Network network;
 	private final DrtEventSequenceCollector collector;
 	@Nullable
 	private final MatsimServices services;
@@ -89,10 +91,12 @@ public final class ZonalDrtWaitTimeSkim implements DrtWaitTimeSkim, IterationEnd
 	private volatile SkimData data;
 
 	public ZonalDrtWaitTimeSkim(String mode, DrtWaitTimeSkimParams params, ZoneSystem zoneSystem,
-			DrtEventSequenceCollector collector, @Nullable MatsimServices services, String delimiter) {
+			@Nullable Network network, DrtEventSequenceCollector collector, @Nullable MatsimServices services,
+			String delimiter) {
 		this.mode = mode;
 		this.params = params;
 		this.zoneSystem = zoneSystem;
+		this.network = network;
 		this.collector = collector;
 		this.services = services;
 		this.delimiter = delimiter;
@@ -103,7 +107,7 @@ public final class ZonalDrtWaitTimeSkim implements DrtWaitTimeSkim, IterationEnd
 	@Override
 	public Lookup lookup(Id<Link> fromLinkId, double time) {
 		SkimData snapshot = this.data;
-		Id<Zone> zoneId = zoneSystem.getZoneForLinkId(fromLinkId).map(Identifiable::getId).orElse(null);
+		Id<Zone> zoneId = zoneOf(fromLinkId);
 		boolean timeKnown = !Double.isNaN(time);
 		int bin = timeKnown ? binOf(time) : -1;
 
@@ -187,9 +191,37 @@ public final class ZonalDrtWaitTimeSkim implements DrtWaitTimeSkim, IterationEnd
 
 	@Nullable
 	private Id<Zone> zoneOf(EventSequence sequence) {
-		return zoneSystem.getZoneForLinkId(sequence.getSubmitted().getFromLinkId())
-				.map(Identifiable::getId)
-				.orElse(null);
+		return zoneOf(sequence.getSubmitted().getFromLinkId());
+	}
+
+	/**
+	 * Resolves a link to its zone, or to {@code null} where no zone applies.
+	 * <p>
+	 * The zone system is built on this mode's <em>filtered</em> network, and
+	 * {@link ZoneSystem#getZoneForLinkId} is not required to tolerate a link outside it —
+	 * {@code SquareGridZoneSystem}, for one, dereferences the link and throws. A caller holding a
+	 * link id from elsewhere in the scenario would therefore get a NullPointerException from a
+	 * method documented to always return a number. Screen those links out here instead, so such a
+	 * lookup falls through to the coarser aggregates and reports its {@link Source} honestly.
+	 * <p>
+	 * The identity check is not redundant with the {@code null} check. {@link org.matsim.api.core.v01.IdMap}
+	 * resolves purely by {@link Id#index()} and does not verify that the stored key matches, so a
+	 * foreign id whose index collides with an occupied slot silently yields <em>another</em> link.
+	 * Comparing the returned link's own id turns that aliasing into a miss rather than into a wait
+	 * time read from the wrong zone.
+	 */
+	@Nullable
+	private Id<Zone> zoneOf(@Nullable Id<Link> linkId) {
+		if (linkId == null) {
+			return null;
+		}
+		if (network != null) {
+			Link link = network.getLinks().get(linkId);
+			if (link == null || !linkId.equals(link.getId())) {
+				return null;
+			}
+		}
+		return zoneSystem.getZoneForLinkId(linkId).map(Identifiable::getId).orElse(null);
 	}
 
 	private void report(Observations obs, int originsOutsideZoneSystem, int pickupsBeforeReadiness) {
