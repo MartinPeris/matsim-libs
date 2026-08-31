@@ -91,7 +91,10 @@ Because this reasoning is about the core's behaviour and not about this package'
 decorator's own unit tests cannot check it — they inspect only the number handed to the core, which
 is what let the sign error survive. `WaitAwareIntermodalAccessEgressRaptorIT` drives
 `SwissRailRaptorCore` end to end and asserts on the resulting route cost, including the invariant
-that a wait must never make a route cheaper at any factor.
+that a wait must never make a route cheaper at any factor. `RunDrtWaitTimeSkimIT` goes one level
+further out and runs a whole intermodal DRT+PT controler, which is the only thing that exercises the
+Guice wiring: an overriding module that fails to replace `RaptorIntermodalAccessEgress` leaves every
+other test passing while routing quietly ignores waiting altogether.
 
 ## Choosing `waitingCostFactor`, and why the default is 1.0
 
