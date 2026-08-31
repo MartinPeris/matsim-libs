@@ -46,8 +46,14 @@ public interface DrtWaitTimeSkim {
 	 * Which aggregate a returned wait time actually came from, coarsening left to right.
 	 */
 	enum Source {
-		/** The requested zone and time bin were observed directly. */
+		/** The requested zone and time bin were observed in the iteration just finished. */
 		ZONE_TIME_BIN,
+		/**
+		 * The requested zone and time bin carry a value, but it was last observed in an earlier
+		 * iteration and has only been carried forward since. Still measurement, but stale, and
+		 * arbitrarily so: values do not expire.
+		 */
+		ZONE_TIME_BIN_CARRIED,
 		/** The zone was observed, but not in this time bin; the zone's all-day mean was used. */
 		ZONE_MEAN,
 		/** The zone was never observed; the system-wide mean for this time bin was used. */
