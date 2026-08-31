@@ -55,7 +55,7 @@ public final class DrtWaitTimeSkimModule extends AbstractDvrpModeModule {
 			Network network = getter.getModal(Network.class);
 			ZoneSystem zoneSystem = ZoneSystemUtils.createZoneSystem(getConfig().getContext(), network,
 					skimParams.addOrGetZoneSystemParams());
-			return new ZonalDrtWaitTimeSkim(getMode(), skimParams, zoneSystem,
+			return new ZonalDrtWaitTimeSkim(getMode(), skimParams, zoneSystem, network,
 					getter.getModal(DrtEventSequenceCollector.class), getter.get(MatsimServices.class),
 					getConfig().global().getDefaultDelimiter());
 		})).asEagerSingleton();
