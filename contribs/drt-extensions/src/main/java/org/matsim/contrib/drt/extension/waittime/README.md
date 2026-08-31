@@ -133,11 +133,93 @@ unreliability premium is real. A factor in the region of 1.2–1.5 is a crude pr
 penalty. It is a proxy, though, not a measurement, and it should be calibrated rather than assumed —
 which is exactly why it is not the default.
 
+## Observed ride time, and the constraint ceiling
+
+The wait skim fixes a term Raptor was blind to. There is a second, larger error next to it, in a term
+Raptor does read.
+
+A routed DRT leg does not carry an expected duration. `DrtRoute.setConstraints` calls
+`setTravelTime(constraints.maxTravelDuration())` and `DefaultMainLegRouter` copies that onto the leg,
+so routing and scoring see
+
+```
+maxTravelTimeAlpha * unsharedRideTime + maxTravelTimeBeta
+```
+
+— the ceiling above which the operator would *reject* the request, not an expectation of it. For a
+short intermodal feeder leg that ceiling is dominated by `beta`. Measured in this package's
+integration test, with `alpha = 1.5` and `beta = 600`:
+
+| unshared ride | what routing sees | ratio |
+| --- | --- | --- |
+| 203 s | 904.5 s | 4.5x |
+| 405 s | 1207.5 s | 3.0x |
+
+`DrtRideTimeSkim` records what the ride actually cost, as a **factor** rather than a duration:
+
+```
+factor = (PassengerDroppedOffEvent.time - PassengerPickedUpEvent.time) / DrtRequestSubmittedEvent.unsharedRideTime
+```
+
+Only requests that were both picked up *and* dropped off contribute; `DrtEventSequenceCollector`
+counts a sequence as performed without a drop-off, so that is filtered explicitly.
+
+**Why a factor.** Ride time is strongly distance-dependent, so an absolute mean cannot be
+meaningfully aggregated — falling back to "the system-wide mean ride time" would tell a ten-kilometre
+trip it takes as long as the average two-kilometre one, which is worse than the estimate it replaced.
+A ratio is dimensionless, so the coarser fallback levels stay meaningful. Normalising against the
+*constraint* instead would bake `alpha` and `beta` into the stored number, so changing them would
+silently invalidate the skim; `unsharedRideTime` is a pure network property and does not.
+
+**How it is applied.** `factor x route.getDirectRideTime()` replaces the leg's ceiling, clamped into
+`[directRideTime, leg travel time]` — below the unshared ride is physically impossible, above the
+ceiling is a trip that would have been rejected, and a mean drawn from a coarse aggregate can land
+outside that range for an individual pair. Where nothing has been observed the leg is left exactly as
+it was, so there is no `defaultRideTimeFactor` to mis-set: installing the ride skim changes nothing
+until it has something to say.
+
+**Bounding.** Keying on zone *pairs* is what made the stop-keyed ancestor of this design intractable:
+it allocated an all-pairs table eagerly, O(n²) in stops over a link-derived stop set. Here only pairs
+that were actually travelled are stored, so the table grows with the origin-destination pairs a
+scenario uses rather than with the square of the zone count — 4 pairs over 16 cells in the
+integration scenario. A same-zone pair is an ordinary key, not an edge case; the ancestor threw on
+one.
+
+**What it is worth, and where.** In the integration scenario the observed factor settles at about
+**1.16**, so a 203-second unshared ride should reach routing as roughly 236 seconds against the
+904.5 seconds the ceiling gives it. What that buys depends on the direction, and the access side sets
+the same trap the wait term did.
+
+- **In time, always.** The traveller reaches the stop some eleven minutes earlier and can catch
+  departures the ceiling had them missing. This is the unambiguous gain and it applies everywhere.
+- **On egress, in cost too.** There is no offsetting waiting term, so the full
+  `delta x -mu_travel` lands on the route cost.
+- **On access, in cost, it depends — and can go either way.** Cutting the modelled ride does not
+  delete that time; it moves it out of the DRT vehicle and onto the platform, where
+  `SwissRailRaptorCore` charges it at `mu_wait` rather than at the mode's `mu_travel`. The route cost
+  moves by exactly
+
+  ```
+  delta x (mu_travel - mu_wait)
+  ```
+
+  which is a saving only where riding is dearer than waiting. Since `marginalUtlOfWaitingPt` defaults
+  to the *pt* mode's `marginalUtilityOfTraveling`, the sign is a property of the scenario's scoring
+  file, not of this package. `WaitAwareIntermodalAccessEgressRaptorIT` asserts that identity rather
+  than a direction, because the direction is not ours to promise.
+
+That is not a defect in either the skim or the core; it is what pricing two different activities at
+two different rates means. It is recorded here because the first version of the *wait* term was wrong
+in precisely this way — by assuming the core's response to a changed `accessTime` without checking
+its sign.
+
 ## Where it surfaces
 
 1. **In routing and scoring**, via `WaitAwareRaptorIntermodalAccessEgress`, as above.
-2. **As a file**: `drtWaitTimeSkim_<mode>.csv` per iteration directory, with columns
-   `zone, timeBin, binStart, binEnd, observations, rejections, waitTime, carriedForward`.
+2. **As files**, per iteration directory: `drtWaitTimeSkim_<mode>.csv` with columns
+   `zone, timeBin, binStart, binEnd, observations, rejections, waitTime, carriedForward`, and
+   `drtRideTimeSkim_<mode>.csv` with
+   `fromZone, toZone, timeBin, binStart, binEnd, observations, rideTimeFactor, carriedForward`.
 3. **Programmatically**: inject the mode-keyed `Map<String, DrtWaitTimeSkim>` or the modal
    `ZonalDrtWaitTimeSkim`, and call `lookup(linkId, time)`.
 
@@ -169,6 +251,7 @@ about the config file, not about the scenario.
 ```java
 DrtWithExtensionsConfigGroup drtCfg = new DrtWithExtensionsConfigGroup();
 drtCfg.addParameterSet(new DrtWaitTimeSkimParams());   // 15-min bins, square-grid zones, factor 1.0
+drtCfg.addParameterSet(new DrtRideTimeSkimParams());   // optional, and independent of the above
 
 Controler controler = DrtControlerCreator.createControler(config, scenario, false);
 controler.addOverridingModule(new MultiModeDrtWaitTimeSkimModule());
@@ -191,6 +274,11 @@ declares the parameter set, so installing it unconditionally is safe.
 | `writeSkimCsv` | true | Write the per-iteration CSV. |
 | nested zone system | `SquareGridZoneSystem` | Any `ZoneSystemParams` — square grid, H3, or a shapefile. |
 
+The `rideTimeSkim` parameter set is separate and independently optional, with its own zone system —
+pairs need coarser cells than single zones do to keep them from going empty. It takes `timeBinSize`
+(default 3600 s), `horizon`, `smoothingWeight`, `minObservations` and `writeSkimCsv` with the same
+meanings, and deliberately has **no** default-factor parameter.
+
 ## Known limitations
 
 - **Rejections are excluded from the mean.** A rejection is an unbounded wait, and averaging it in
@@ -205,9 +293,12 @@ declares the parameter set, so installing it unconditionally is safe.
 - **Egress waits are looked up at the wrong time.** `DefaultRaptorStopFinder` passes the trip's
   original departure time to the egress routing module and documents it as wrong; the leg carries
   that time, so an egress wait on a long trip may be read from the wrong bin.
-- **Only waiting is instrumented, not stop-to-stop ride time.** Zone-to-zone ride time is a natural
-  extension using the same machinery, and is well defined here in a way it is not for a stop-keyed
-  design.
+- **The ride-time factor is a mean, and detour is not symmetric in its effects.** A pair whose rides
+  are usually direct but occasionally badly detoured is reported at its mean, so the skim understates
+  the tail exactly where sharing is worst. This is the same bias the wait skim carries for rejections.
+- **The package is named for the wait skim alone.** It now also carries the ride-time skim, and
+  `MultiModeDrtWaitTimeSkimModule` installs both. Renaming the package and that module is worth doing
+  before this merges; it was left alone here to keep the review diff about behaviour.
 - **A zone system that does not cover the service area starves the skim.** Requests whose origin
   falls outside it are counted and warned about at the end of each iteration, not silently dropped.
 - **Convergence is unmeasured.** The damping exists because undamped replacement is a known hazard,

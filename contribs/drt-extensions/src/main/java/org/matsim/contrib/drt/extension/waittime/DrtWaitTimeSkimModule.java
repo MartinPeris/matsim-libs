@@ -21,6 +21,8 @@ package org.matsim.contrib.drt.extension.waittime;
 
 import com.google.inject.multibindings.MapBinder;
 
+import jakarta.annotation.Nullable;
+
 import org.matsim.api.core.v01.network.Network;
 import org.matsim.contrib.common.zones.ZoneSystem;
 import org.matsim.contrib.common.zones.ZoneSystemUtils;
@@ -30,7 +32,7 @@ import org.matsim.contrib.dvrp.run.AbstractDvrpModeModule;
 import org.matsim.core.controler.MatsimServices;
 
 /**
- * Wires the observed wait-time skim for a single DRT mode: builds its zone system, binds the skim
+ * Wires the observed wait-time and ride-time skims for a single DRT mode: builds its zone system, binds the skim
  * modally, registers it as a controller listener so it refreshes at the end of each iteration, and
  * publishes it into the mode-keyed map that
  * {@link WaitAwareRaptorIntermodalAccessEgress} consumes.
@@ -42,28 +44,54 @@ import org.matsim.core.controler.MatsimServices;
  */
 public final class DrtWaitTimeSkimModule extends AbstractDvrpModeModule {
 
-	private final DrtWaitTimeSkimParams skimParams;
+	@Nullable
+	private final DrtWaitTimeSkimParams waitParams;
+	@Nullable
+	private final DrtRideTimeSkimParams rideParams;
 
-	public DrtWaitTimeSkimModule(DrtConfigGroup drtCfg, DrtWaitTimeSkimParams skimParams) {
+	public DrtWaitTimeSkimModule(DrtConfigGroup drtCfg, @Nullable DrtWaitTimeSkimParams waitParams,
+			@Nullable DrtRideTimeSkimParams rideParams) {
 		super(drtCfg.getMode());
-		this.skimParams = skimParams;
+		this.waitParams = waitParams;
+		this.rideParams = rideParams;
 	}
 
 	@Override
 	public void install() {
-		bindModal(ZonalDrtWaitTimeSkim.class).toProvider(modalProvider(getter -> {
-			Network network = getter.getModal(Network.class);
-			ZoneSystem zoneSystem = ZoneSystemUtils.createZoneSystem(getConfig().getContext(), network,
-					skimParams.addOrGetZoneSystemParams());
-			return new ZonalDrtWaitTimeSkim(getMode(), skimParams, zoneSystem, network,
-					getter.getModal(DrtEventSequenceCollector.class), getter.get(MatsimServices.class),
-					getConfig().global().getDefaultDelimiter());
-		})).asEagerSingleton();
+		if (waitParams != null) {
+			bindModal(ZonalDrtWaitTimeSkim.class).toProvider(modalProvider(getter -> {
+				Network network = getter.getModal(Network.class);
+				ZoneSystem zoneSystem = ZoneSystemUtils.createZoneSystem(getConfig().getContext(), network,
+						waitParams.addOrGetZoneSystemParams());
+				return new ZonalDrtWaitTimeSkim(getMode(), waitParams, zoneSystem, network,
+						getter.getModal(DrtEventSequenceCollector.class), getter.get(MatsimServices.class),
+						getConfig().global().getDefaultDelimiter());
+			})).asEagerSingleton();
 
-		addControllerListenerBinding().to(modalKey(ZonalDrtWaitTimeSkim.class));
+			addControllerListenerBinding().to(modalKey(ZonalDrtWaitTimeSkim.class));
 
-		MapBinder.newMapBinder(binder(), String.class, DrtWaitTimeSkim.class)
-				.addBinding(getMode())
-				.to(modalKey(ZonalDrtWaitTimeSkim.class));
+			MapBinder.newMapBinder(binder(), String.class, DrtWaitTimeSkim.class)
+					.addBinding(getMode())
+					.to(modalKey(ZonalDrtWaitTimeSkim.class));
+		}
+
+		if (rideParams != null) {
+			bindModal(ZonalDrtRideTimeSkim.class).toProvider(modalProvider(getter -> {
+				Network network = getter.getModal(Network.class);
+				// a separate zone system: ride time is keyed on pairs, so it usually wants a coarser
+				// resolution than wait time to keep cells from going empty
+				ZoneSystem zoneSystem = ZoneSystemUtils.createZoneSystem(getConfig().getContext(), network,
+						rideParams.addOrGetZoneSystemParams());
+				return new ZonalDrtRideTimeSkim(getMode(), rideParams, zoneSystem, network,
+						getter.getModal(DrtEventSequenceCollector.class), getter.get(MatsimServices.class),
+						getConfig().global().getDefaultDelimiter());
+			})).asEagerSingleton();
+
+			addControllerListenerBinding().to(modalKey(ZonalDrtRideTimeSkim.class));
+
+			MapBinder.newMapBinder(binder(), String.class, DrtRideTimeSkim.class)
+					.addBinding(getMode())
+					.to(modalKey(ZonalDrtRideTimeSkim.class));
+		}
 	}
 }
