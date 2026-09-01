@@ -17,7 +17,7 @@
  *                                                                         *
  * *********************************************************************** */
 
-package org.matsim.contrib.drt.extension.waittime;
+package org.matsim.contrib.drt.extension.skims;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -37,13 +37,13 @@ import ch.sbb.matsim.routing.pt.raptor.RaptorIntermodalAccessEgress;
 /**
  * Entry point for wait-aware intermodal routing.
  * <p>
- * Installs a {@link DrtWaitTimeSkimModule} for every DRT mode that declares a
+ * Installs a {@link DrtSkimsModule} for every DRT mode that declares a
  * {@link DrtWaitTimeSkimParams} parameter set, and replaces SwissRailRaptor's default intermodal
  * access/egress cost with one that charges for waiting. Because it overrides a binding made by
  * {@code SwissRailRaptorModule}, add it as an overriding module:
  *
  * <pre>{@code
- * controler.addOverridingModule(new MultiModeDrtWaitTimeSkimModule());
+ * controler.addOverridingModule(new MultiModeDrtSkimsModule());
  * }</pre>
  *
  * If no mode declares the parameter set, nothing is bound and SwissRailRaptor keeps its default
@@ -51,9 +51,9 @@ import ch.sbb.matsim.routing.pt.raptor.RaptorIntermodalAccessEgress;
  *
  * @author Monash Healthy Active Cities
  */
-public final class MultiModeDrtWaitTimeSkimModule extends AbstractModule {
+public final class MultiModeDrtSkimsModule extends AbstractModule {
 
-	private static final Logger log = LogManager.getLogger(MultiModeDrtWaitTimeSkimModule.class);
+	private static final Logger log = LogManager.getLogger(MultiModeDrtSkimsModule.class);
 
 	@Override
 	public void install() {
@@ -69,7 +69,7 @@ public final class MultiModeDrtWaitTimeSkimModule extends AbstractModule {
 			waitParams.ifPresent(p -> log.info("Wait-time skim enabled for DRT mode '{}'", drtCfg.getMode()));
 			rideParams.ifPresent(p -> log.info("Ride-time skim enabled for DRT mode '{}'", drtCfg.getMode()));
 
-			install(new DrtWaitTimeSkimModule(drtCfg, waitParams.orElse(null), rideParams.orElse(null)));
+			install(new DrtSkimsModule(drtCfg, waitParams.orElse(null), rideParams.orElse(null)));
 			waitParams.ifPresent(p -> waitConfigured.put(drtCfg.getMode(), p));
 			anyRideConfigured |= rideParams.isPresent();
 		}
@@ -78,7 +78,7 @@ public final class MultiModeDrtWaitTimeSkimModule extends AbstractModule {
 			log.warn("{} was installed but no DRT mode declares a '{}' or '{}' parameter set;"
 							+ " intermodal access/egress cost is unchanged and still ignores both waiting"
 							+ " time and observed ride time.",
-					MultiModeDrtWaitTimeSkimModule.class.getSimpleName(), DrtWaitTimeSkimParams.SET_NAME,
+					MultiModeDrtSkimsModule.class.getSimpleName(), DrtWaitTimeSkimParams.SET_NAME,
 					DrtRideTimeSkimParams.SET_NAME);
 			return;
 		}
@@ -89,10 +89,10 @@ public final class MultiModeDrtWaitTimeSkimModule extends AbstractModule {
 		MapBinder.newMapBinder(binder(), String.class, DrtWaitTimeSkim.class);
 		MapBinder.newMapBinder(binder(), String.class, DrtRideTimeSkim.class);
 
-		bind(RaptorIntermodalAccessEgress.class).to(WaitAwareRaptorIntermodalAccessEgress.class)
+		bind(RaptorIntermodalAccessEgress.class).to(SkimAwareRaptorIntermodalAccessEgress.class)
 				.asEagerSingleton();
-		bind(WaitAwareRaptorIntermodalAccessEgress.WaitingCostFactor.class)
-				.toInstance(new WaitAwareRaptorIntermodalAccessEgress.WaitingCostFactor(
+		bind(SkimAwareRaptorIntermodalAccessEgress.WaitingCostFactor.class)
+				.toInstance(new SkimAwareRaptorIntermodalAccessEgress.WaitingCostFactor(
 						resolveWaitingCostFactor(waitConfigured)));
 	}
 

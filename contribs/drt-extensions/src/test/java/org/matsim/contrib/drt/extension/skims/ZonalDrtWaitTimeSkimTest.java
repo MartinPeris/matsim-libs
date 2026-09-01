@@ -1,4 +1,4 @@
-package org.matsim.contrib.drt.extension.waittime;
+package org.matsim.contrib.drt.extension.skims;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
@@ -23,7 +23,7 @@ import org.matsim.contrib.common.zones.systems.grid.square.SquareGridZoneSystem;
 
 import jakarta.annotation.Nullable;
 import org.matsim.contrib.drt.analysis.DrtEventSequenceCollector;
-import org.matsim.contrib.drt.extension.waittime.DrtWaitTimeSkim.Source;
+import org.matsim.contrib.drt.extension.skims.DrtWaitTimeSkim.Source;
 import org.matsim.contrib.drt.passenger.events.DrtRequestSubmittedEvent;
 import org.matsim.contrib.dvrp.fleet.DvrpVehicle;
 import org.matsim.contrib.dvrp.optimizer.Request;

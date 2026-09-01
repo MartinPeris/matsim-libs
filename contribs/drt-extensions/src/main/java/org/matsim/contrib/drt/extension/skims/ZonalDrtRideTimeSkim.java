@@ -17,7 +17,7 @@
  *                                                                         *
  * *********************************************************************** */
 
-package org.matsim.contrib.drt.extension.waittime;
+package org.matsim.contrib.drt.extension.skims;
 
 import java.io.BufferedWriter;
 import java.io.IOException;

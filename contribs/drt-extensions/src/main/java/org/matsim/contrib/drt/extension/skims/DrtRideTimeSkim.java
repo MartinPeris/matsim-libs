@@ -17,7 +17,7 @@
  *                                                                         *
  * *********************************************************************** */
 
-package org.matsim.contrib.drt.extension.waittime;
+package org.matsim.contrib.drt.extension.skims;
 
 import org.matsim.api.core.v01.Id;
 import org.matsim.api.core.v01.network.Link;

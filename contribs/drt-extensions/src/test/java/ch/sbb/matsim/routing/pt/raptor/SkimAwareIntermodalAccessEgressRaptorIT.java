@@ -29,10 +29,10 @@ import org.junit.jupiter.api.Test;
 import org.matsim.api.core.v01.Id;
 import org.matsim.api.core.v01.network.Link;
 import org.matsim.api.core.v01.population.Leg;
-import org.matsim.contrib.drt.extension.waittime.DrtRideTimeSkim;
-import org.matsim.contrib.drt.extension.waittime.DrtWaitTimeSkim;
+import org.matsim.contrib.drt.extension.skims.DrtRideTimeSkim;
+import org.matsim.contrib.drt.extension.skims.DrtWaitTimeSkim;
 import org.matsim.contrib.drt.routing.DrtRoute;
-import org.matsim.contrib.drt.extension.waittime.WaitAwareRaptorIntermodalAccessEgress;
+import org.matsim.contrib.drt.extension.skims.SkimAwareRaptorIntermodalAccessEgress;
 import org.matsim.core.population.PopulationUtils;
 import org.matsim.core.population.routes.RouteUtils;
 import org.matsim.pt.transitSchedule.api.TransitStopFacility;
@@ -41,7 +41,7 @@ import ch.sbb.matsim.routing.pt.raptor.RaptorIntermodalAccessEgress.RIntermodalA
 import ch.sbb.matsim.routing.pt.raptor.RaptorStopFinder.Direction;
 
 /**
- * Drives {@link WaitAwareRaptorIntermodalAccessEgress} through {@link SwissRailRaptorCore} and
+ * Drives {@link SkimAwareRaptorIntermodalAccessEgress} through {@link SwissRailRaptorCore} and
  * asserts on the <em>route</em> cost the core produces, rather than on what the decorator returns.
  * <p>
  * This lives here, in SwissRailRaptor's own package, because it needs the package-private
@@ -57,7 +57,7 @@ import ch.sbb.matsim.routing.pt.raptor.RaptorStopFinder.Direction;
  *
  * @author Monash Healthy Active Cities
  */
-public class WaitAwareIntermodalAccessEgressRaptorIT {
+public class SkimAwareIntermodalAccessEgressRaptorIT {
 
 	/** Chosen so the baseline platform wait (960 s) comfortably exceeds WAIT: same vehicle either way. */
 	private static final double DEPARTURE_TIME = 6.0 * 3600 - 900;
@@ -222,12 +222,12 @@ public class WaitAwareIntermodalAccessEgressRaptorIT {
 
 		/** No skim registered for the mode: the decorator is a pass-through, so no wait is added. */
 		Routed routeWithoutSkim() {
-			return route(new WaitAwareRaptorIntermodalAccessEgress(new DefaultRaptorIntermodalAccessEgress(),
+			return route(new SkimAwareRaptorIntermodalAccessEgress(new DefaultRaptorIntermodalAccessEgress(),
 					Map.of(), 1.0));
 		}
 
 		Routed route(double waitTime, double waitingCostFactor) {
-			return route(new WaitAwareRaptorIntermodalAccessEgress(new DefaultRaptorIntermodalAccessEgress(),
+			return route(new SkimAwareRaptorIntermodalAccessEgress(new DefaultRaptorIntermodalAccessEgress(),
 					Map.of(DRT, constantSkim(waitTime)), waitingCostFactor));
 		}
 
@@ -238,12 +238,12 @@ public class WaitAwareIntermodalAccessEgressRaptorIT {
 		Routed routeWithRideFactor(double factor) {
 			DrtRideTimeSkim rideSkim = (from, to, time) ->
 					new DrtRideTimeSkim.Lookup(factor, DrtRideTimeSkim.Source.ZONE_PAIR_TIME_BIN);
-			return route(new WaitAwareRaptorIntermodalAccessEgress(new DefaultRaptorIntermodalAccessEgress(),
+			return route(new SkimAwareRaptorIntermodalAccessEgress(new DefaultRaptorIntermodalAccessEgress(),
 					Map.of(), Map.of(DRT, rideSkim), 1.0), List.of(drtLegAtCeiling()));
 		}
 
 		Routed routeAtCeilingWithoutRideSkim() {
-			return route(new WaitAwareRaptorIntermodalAccessEgress(new DefaultRaptorIntermodalAccessEgress(),
+			return route(new SkimAwareRaptorIntermodalAccessEgress(new DefaultRaptorIntermodalAccessEgress(),
 					Map.of(), 1.0), List.of(drtLegAtCeiling()));
 		}
 

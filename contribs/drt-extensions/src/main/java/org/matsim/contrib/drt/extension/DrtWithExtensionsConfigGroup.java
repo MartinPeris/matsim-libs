@@ -27,8 +27,8 @@ import org.matsim.contrib.drt.extension.insertion.spatialFilter.DrtSpatialReques
 import org.matsim.contrib.drt.extension.operations.DrtOperationsParams;
 import org.matsim.contrib.drt.extension.preemptive_rejection.PreemptiveRejectionParams;
 import org.matsim.contrib.drt.extension.services.services.params.DrtServicesParams;
-import org.matsim.contrib.drt.extension.waittime.DrtRideTimeSkimParams;
-import org.matsim.contrib.drt.extension.waittime.DrtWaitTimeSkimParams;
+import org.matsim.contrib.drt.extension.skims.DrtRideTimeSkimParams;
+import org.matsim.contrib.drt.extension.skims.DrtWaitTimeSkimParams;
 import org.matsim.contrib.drt.optimizer.constraints.DrtOptimizationConstraintsSet;
 import org.matsim.contrib.drt.optimizer.constraints.DrtOptimizationConstraintsSetImpl;
 import org.matsim.contrib.drt.run.DrtConfigGroup;

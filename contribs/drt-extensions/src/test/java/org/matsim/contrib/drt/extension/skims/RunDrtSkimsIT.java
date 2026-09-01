@@ -1,4 +1,4 @@
-package org.matsim.contrib.drt.extension.waittime;
+package org.matsim.contrib.drt.extension.skims;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
@@ -61,7 +61,7 @@ import ch.sbb.matsim.routing.pt.raptor.SwissRailRaptorModule;
  *
  * @author Monash Healthy Active Cities
  */
-public class RunDrtWaitTimeSkimIT {
+public class RunDrtSkimsIT {
 
 	private static final int LAST_ITERATION = 3;
 
@@ -150,13 +150,13 @@ public class RunDrtWaitTimeSkimIT {
 
 		Controler controler = DrtControlerCreator.createControler(config, scenario, false);
 		controler.addOverridingModule(new SwissRailRaptorModule());
-		controler.addOverridingModule(new MultiModeDrtWaitTimeSkimModule());
+		controler.addOverridingModule(new MultiModeDrtSkimsModule());
 		controler.run();
 
 		// the overriding module must actually have replaced SwissRailRaptor's binding; if it did
 		// not, everything below still passes while routing silently ignores waiting
 		assertThat(controler.getInjector().getInstance(RaptorIntermodalAccessEgress.class))
-				.isInstanceOf(WaitAwareRaptorIntermodalAccessEgress.class);
+				.isInstanceOf(SkimAwareRaptorIntermodalAccessEgress.class);
 
 		for (int iteration = 0; iteration <= LAST_ITERATION; iteration++) {
 			Path csv = Path.of(utils.getOutputDirectory(), "ITERS", "it." + iteration,
