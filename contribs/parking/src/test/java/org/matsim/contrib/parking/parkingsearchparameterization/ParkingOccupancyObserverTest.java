@@ -114,6 +114,51 @@ class ParkingOccupancyObserverTest {
 		checkFile(1);
 	}
 
+	/**
+	 * Capacity here is an input to a search-time penalty, not a constraint. The observer counts parking events as they
+	 * arrive and never refuses one, so occupancy is free to exceed capacity.
+	 * <p>
+	 * Any model that needs a hard kerb limit has to enforce it before the event is emitted; adding the check here
+	 * would change the meaning of every existing scenario.
+	 */
+	@Test
+	void occupancyIsAllowedToExceedCapacity() {
+		Id<Link> linkId = Id.createLinkId("l");
+
+		ParkingOccupancyObserver parkingOccupancyObserver = getParkingObserver();
+		parkingOccupancyObserver.notifyMobsimBeforeSimStep(new MobsimBeforeSimStepEvent(null, 10));
+		for (int i = 0; i < 5; i++) {
+			parkingOccupancyObserver.handleEvent(
+				new VehicleEndsParkingSearch(10, Id.createPersonId("p" + i), linkId, Id.createVehicleId("v" + i), "car"));
+		}
+		parkingOccupancyObserver.notifyMobsimBeforeSimStep(new MobsimBeforeSimStepEvent(null, 11));
+
+		Map<Id<Link>, ParkingCount> parkingCount = parkingOccupancyObserver.getParkingCount(11, Map.of(linkId, 1.0));
+		assertEquals(Map.of(linkId, new ParkingCount(5, 2, 1.0)), parkingCount,
+			"five vehicles should park on a link with capacity two; occupancy is observed, not enforced");
+	}
+
+	/**
+	 * The opposite direction is guarded: more departures than arrivals cannot drive occupancy negative. This matters
+	 * because a scenario may start with vehicles already parked that the initializer did not account for.
+	 */
+	@Test
+	void occupancyIsClampedAtZeroOnExcessDepartures() {
+		Id<Link> linkId = Id.createLinkId("l");
+
+		ParkingOccupancyObserver parkingOccupancyObserver = getParkingObserver();
+		parkingOccupancyObserver.notifyMobsimBeforeSimStep(new MobsimBeforeSimStepEvent(null, 10));
+		for (int i = 0; i < 3; i++) {
+			parkingOccupancyObserver.handleEvent(
+				new VehicleEntersTrafficEvent(10, Id.createPersonId("p" + i), linkId, Id.createVehicleId("v" + i), "car", 0));
+		}
+		parkingOccupancyObserver.notifyMobsimBeforeSimStep(new MobsimBeforeSimStepEvent(null, 11));
+
+		Map<Id<Link>, ParkingCount> parkingCount = parkingOccupancyObserver.getParkingCount(11, Map.of(linkId, 1.0));
+		assertEquals(Map.of(linkId, new ParkingCount(0, 2, 1.0)), parkingCount,
+			"three departures from an empty link should leave occupancy at zero, not negative");
+	}
+
 	private ParkingOccupancyObserver getParkingObserver() {
 		Network network = NetworkUtils.createNetwork();
 
