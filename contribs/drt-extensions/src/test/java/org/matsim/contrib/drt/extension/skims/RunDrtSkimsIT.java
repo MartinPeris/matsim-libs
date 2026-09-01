@@ -68,8 +68,7 @@ public class RunDrtSkimsIT {
 	@RegisterExtension
 	private MatsimTestUtils utils = new MatsimTestUtils();
 
-	@Test
-	void waitTimesAreObservedAndFedIntoIntermodalRouting() throws Exception {
+	private Controler run(double maxWaitTime) {
 		String in = utils.getPackageInputDirectory();
 
 		Config config = ConfigUtils.createConfig();
@@ -125,7 +124,7 @@ public class RunDrtSkimsIT {
 				.addOrGetDefaultDrtOptimizationConstraintsSet();
 		constraints.setMaxTravelTimeAlpha(1.5);
 		constraints.setMaxTravelTimeBeta(10. * 60.);
-		constraints.setMaxWaitTime(15. * 60.);
+		constraints.setMaxWaitTime(maxWaitTime);
 		constraints.setRejectRequestIfMaxWaitOrTravelTimeViolated(true);
 		drtConfig.addParameterSet(new ExtensiveInsertionSearchParams());
 
@@ -152,6 +151,12 @@ public class RunDrtSkimsIT {
 		controler.addOverridingModule(new SwissRailRaptorModule());
 		controler.addOverridingModule(new MultiModeDrtSkimsModule());
 		controler.run();
+		return controler;
+	}
+
+	@Test
+	void waitTimesAreObservedAndFedIntoIntermodalRouting() throws Exception {
+		Controler controler = run(15. * 60.);
 
 		// the overriding module must actually have replaced SwissRailRaptor's binding; if it did
 		// not, everything below still passes while routing silently ignores waiting
@@ -172,7 +177,7 @@ public class RunDrtSkimsIT {
 		assertThat(skim).isNotNull();
 
 		Map<DrtWaitTimeSkim.Source, Integer> tally = new EnumMap<>(DrtWaitTimeSkim.Source.class);
-		for (Link link : scenario.getNetwork().getLinks().values()) {
+		for (Link link : controler.getScenario().getNetwork().getLinks().values()) {
 			for (double time : new double[] { 7 * 3600, 8 * 3600 + 1800, 12 * 3600, 15 * 3600 + 1800 }) {
 				tally.merge(skim.lookup(link.getId(), time).source(), 1, Integer::sum);
 			}
@@ -210,6 +215,37 @@ public class RunDrtSkimsIT {
 			double factor = Double.parseDouble(fields[6]);
 			assertThat(factor).as("ride-time factor in row %s", row).isGreaterThanOrEqualTo(1.0);
 		}
+	}
+
+	/**
+	 * A rejection is an unbounded wait, so it cannot enter the mean. It is counted beside the wait
+	 * times instead, and the per-iteration rate is logged, so the resulting optimism is visible
+	 * rather than hidden. Squeezing maxWaitTime is the cheapest way to make the operator reject.
+	 */
+	@Test
+	void rejectionsAreCountedInTheCsvRatherThanAveragedIntoTheWait() throws Exception {
+		run(240.);
+
+		Path csv = Path.of(utils.getOutputDirectory(), "ITERS", "it." + LAST_ITERATION,
+				LAST_ITERATION + ".drtWaitTimeSkim_drt.csv");
+		List<String> rows = Files.readAllLines(csv);
+		assertThat(rows).hasSizeGreaterThan(1);
+
+		int rejections = 0;
+		int served = 0;
+		for (String row : rows.subList(1, rows.size())) {
+			String[] fields = row.split(";");
+			rejections += Integer.parseInt(fields[5]);
+			String waitTime = fields.length > 6 ? fields[6] : "";
+			if (!waitTime.isEmpty()) {
+				served++;
+				// whatever else it is, it is not an unbounded wait smuggled in as a number
+				assertThat(Double.parseDouble(waitTime)).isFinite().isNotNegative();
+			}
+		}
+		assertThat(rejections).as("rejections recorded in %s", csv).isPositive();
+		// both in the same table: the rejections sit beside the wait times rather than in them
+		assertThat(served).as("zones that were still served, in %s", csv).isPositive();
 	}
 
 	private static ActivityParams activity(String type, double typicalDuration) {
