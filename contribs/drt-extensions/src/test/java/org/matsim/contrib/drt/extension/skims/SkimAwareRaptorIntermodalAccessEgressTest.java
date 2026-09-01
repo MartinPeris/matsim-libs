@@ -1,4 +1,4 @@
-package org.matsim.contrib.drt.extension.waittime;
+package org.matsim.contrib.drt.extension.skims;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.within;
@@ -25,7 +25,7 @@ import ch.sbb.matsim.routing.pt.raptor.RaptorStopFinder.Direction;
 /**
  * @author Monash Healthy Active Cities
  */
-class WaitAwareRaptorIntermodalAccessEgressTest {
+class SkimAwareRaptorIntermodalAccessEgressTest {
 
 	private static final String DRT = "drt";
 	private static final double MARGINAL_UTILITY_OF_WAITING_UTL_S = -0.002;
@@ -57,7 +57,7 @@ class WaitAwareRaptorIntermodalAccessEgressTest {
 	 * charging only the excess here would leave a longer wait looking cheaper. The neutrality of
 	 * factor 1.0 on access emerges from that refund cancelling this charge inside the core, not
 	 * from this class declining to charge; see
-	 * {@code ch.sbb.matsim.routing.pt.raptor.WaitAwareIntermodalAccessEgressRaptorIT}, which
+	 * {@code ch.sbb.matsim.routing.pt.raptor.SkimAwareIntermodalAccessEgressRaptorIT}, which
 	 * asserts it on the route cost the core actually produces.
 	 */
 	@Test
@@ -150,7 +150,7 @@ class WaitAwareRaptorIntermodalAccessEgressTest {
 	@Test
 	void theSkimIsQueriedAtTheLegsOwnOriginAndDepartureTime() {
 		RecordingSkim skim = new RecordingSkim();
-		new WaitAwareRaptorIntermodalAccessEgress(new DefaultRaptorIntermodalAccessEgress(), Map.of(DRT, skim), 1.0)
+		new SkimAwareRaptorIntermodalAccessEgress(new DefaultRaptorIntermodalAccessEgress(), Map.of(DRT, skim), 1.0)
 				.calcIntermodalAccessEgress(List.of(drtLeg()), params(), null, Direction.ACCESS);
 
 		assertThat(skim.lastLinkId).isEqualTo(ORIGIN);
@@ -163,7 +163,7 @@ class WaitAwareRaptorIntermodalAccessEgressTest {
 		leg.setDepartureTimeUndefined();
 
 		RecordingSkim skim = new RecordingSkim();
-		new WaitAwareRaptorIntermodalAccessEgress(new DefaultRaptorIntermodalAccessEgress(), Map.of(DRT, skim), 1.0)
+		new SkimAwareRaptorIntermodalAccessEgress(new DefaultRaptorIntermodalAccessEgress(), Map.of(DRT, skim), 1.0)
 				.calcIntermodalAccessEgress(List.of(leg), params(), null, Direction.ACCESS);
 
 		// zero would quietly resolve to the first time bin, which is a different claim entirely
@@ -246,7 +246,7 @@ class WaitAwareRaptorIntermodalAccessEgressTest {
 	}
 
 	private static RaptorIntermodalAccessEgress withRideSkim(DrtRideTimeSkim rideSkim) {
-		return new WaitAwareRaptorIntermodalAccessEgress(new DefaultRaptorIntermodalAccessEgress(), Map.of(),
+		return new SkimAwareRaptorIntermodalAccessEgress(new DefaultRaptorIntermodalAccessEgress(), Map.of(),
 				Map.of(DRT, rideSkim), 1.0);
 	}
 
@@ -274,7 +274,7 @@ class WaitAwareRaptorIntermodalAccessEgressTest {
 	}
 
 	private static RaptorIntermodalAccessEgress withSkim(DrtWaitTimeSkim skim, double waitingCostFactor) {
-		return new WaitAwareRaptorIntermodalAccessEgress(new DefaultRaptorIntermodalAccessEgress(),
+		return new SkimAwareRaptorIntermodalAccessEgress(new DefaultRaptorIntermodalAccessEgress(),
 				Map.of(DRT, skim), waitingCostFactor);
 	}
 

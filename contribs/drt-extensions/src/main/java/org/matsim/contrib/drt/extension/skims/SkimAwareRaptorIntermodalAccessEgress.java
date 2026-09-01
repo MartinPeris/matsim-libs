@@ -17,7 +17,7 @@
  *                                                                         *
  * *********************************************************************** */
 
-package org.matsim.contrib.drt.extension.waittime;
+package org.matsim.contrib.drt.extension.skims;
 
 import java.util.List;
 import java.util.Map;
@@ -97,7 +97,7 @@ import ch.sbb.matsim.routing.pt.raptor.RaptorStopFinder.Direction;
  *
  * @author Monash Healthy Active Cities
  */
-public final class WaitAwareRaptorIntermodalAccessEgress implements RaptorIntermodalAccessEgress {
+public final class SkimAwareRaptorIntermodalAccessEgress implements RaptorIntermodalAccessEgress {
 
 	private final RaptorIntermodalAccessEgress delegate;
 	private final Map<String, DrtWaitTimeSkim> skimsByMode;
@@ -105,17 +105,17 @@ public final class WaitAwareRaptorIntermodalAccessEgress implements RaptorInterm
 	private final double waitingCostFactor;
 
 	@Inject
-	public WaitAwareRaptorIntermodalAccessEgress(Map<String, DrtWaitTimeSkim> skimsByMode,
+	public SkimAwareRaptorIntermodalAccessEgress(Map<String, DrtWaitTimeSkim> skimsByMode,
 			Map<String, DrtRideTimeSkim> rideSkimsByMode, WaitingCostFactor waitingCostFactor) {
 		this(new DefaultRaptorIntermodalAccessEgress(), skimsByMode, rideSkimsByMode, waitingCostFactor.value());
 	}
 
-	public WaitAwareRaptorIntermodalAccessEgress(RaptorIntermodalAccessEgress delegate,
+	public SkimAwareRaptorIntermodalAccessEgress(RaptorIntermodalAccessEgress delegate,
 			Map<String, DrtWaitTimeSkim> skimsByMode, double waitingCostFactor) {
 		this(delegate, skimsByMode, Map.of(), waitingCostFactor);
 	}
 
-	public WaitAwareRaptorIntermodalAccessEgress(RaptorIntermodalAccessEgress delegate,
+	public SkimAwareRaptorIntermodalAccessEgress(RaptorIntermodalAccessEgress delegate,
 			Map<String, DrtWaitTimeSkim> skimsByMode, Map<String, DrtRideTimeSkim> rideSkimsByMode,
 			double waitingCostFactor) {
 		this.delegate = delegate;

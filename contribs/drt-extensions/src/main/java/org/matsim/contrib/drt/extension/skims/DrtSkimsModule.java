@@ -17,7 +17,7 @@
  *                                                                         *
  * *********************************************************************** */
 
-package org.matsim.contrib.drt.extension.waittime;
+package org.matsim.contrib.drt.extension.skims;
 
 import com.google.inject.multibindings.MapBinder;
 
@@ -35,21 +35,21 @@ import org.matsim.core.controler.MatsimServices;
  * Wires the observed wait-time and ride-time skims for a single DRT mode: builds its zone system, binds the skim
  * modally, registers it as a controller listener so it refreshes at the end of each iteration, and
  * publishes it into the mode-keyed map that
- * {@link WaitAwareRaptorIntermodalAccessEgress} consumes.
+ * {@link SkimAwareRaptorIntermodalAccessEgress} consumes.
  * <p>
- * Install it through {@link MultiModeDrtWaitTimeSkimModule} rather than directly, so that the
+ * Install it through {@link MultiModeDrtSkimsModule} rather than directly, so that the
  * Raptor binding is overridden exactly once.
  *
  * @author Monash Healthy Active Cities
  */
-public final class DrtWaitTimeSkimModule extends AbstractDvrpModeModule {
+public final class DrtSkimsModule extends AbstractDvrpModeModule {
 
 	@Nullable
 	private final DrtWaitTimeSkimParams waitParams;
 	@Nullable
 	private final DrtRideTimeSkimParams rideParams;
 
-	public DrtWaitTimeSkimModule(DrtConfigGroup drtCfg, @Nullable DrtWaitTimeSkimParams waitParams,
+	public DrtSkimsModule(DrtConfigGroup drtCfg, @Nullable DrtWaitTimeSkimParams waitParams,
 			@Nullable DrtRideTimeSkimParams rideParams) {
 		super(drtCfg.getMode());
 		this.waitParams = waitParams;

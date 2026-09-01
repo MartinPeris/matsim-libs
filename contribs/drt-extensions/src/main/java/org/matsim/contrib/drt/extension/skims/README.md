@@ -89,9 +89,9 @@ what stated-preference work generally finds; this package does not pick that num
 
 Because this reasoning is about the core's behaviour and not about this package's return value, the
 decorator's own unit tests cannot check it — they inspect only the number handed to the core, which
-is what let the sign error survive. `WaitAwareIntermodalAccessEgressRaptorIT` drives
+is what let the sign error survive. `SkimAwareIntermodalAccessEgressRaptorIT` drives
 `SwissRailRaptorCore` end to end and asserts on the resulting route cost, including the invariant
-that a wait must never make a route cheaper at any factor. `RunDrtWaitTimeSkimIT` goes one level
+that a wait must never make a route cheaper at any factor. `RunDrtSkimsIT` goes one level
 further out and runs a whole intermodal DRT+PT controler, which is the only thing that exercises the
 Guice wiring: an overriding module that fails to replace `RaptorIntermodalAccessEgress` leaves every
 other test passing while routing quietly ignores waiting altogether.
@@ -205,7 +205,7 @@ the same trap the wait term did.
 
   which is a saving only where riding is dearer than waiting. Since `marginalUtlOfWaitingPt` defaults
   to the *pt* mode's `marginalUtilityOfTraveling`, the sign is a property of the scenario's scoring
-  file, not of this package. `WaitAwareIntermodalAccessEgressRaptorIT` asserts that identity rather
+  file, not of this package. `SkimAwareIntermodalAccessEgressRaptorIT` asserts that identity rather
   than a direction, because the direction is not ours to promise.
 
 That is not a defect in either the skim or the core; it is what pricing two different activities at
@@ -215,7 +215,7 @@ its sign.
 
 ## Where it surfaces
 
-1. **In routing and scoring**, via `WaitAwareRaptorIntermodalAccessEgress`, as above.
+1. **In routing and scoring**, via `SkimAwareRaptorIntermodalAccessEgress`, as above.
 2. **As files**, per iteration directory: `drtWaitTimeSkim_<mode>.csv` with columns
    `zone, timeBin, binStart, binEnd, observations, rejections, waitTime, carriedForward`, and
    `drtRideTimeSkim_<mode>.csv` with
@@ -254,10 +254,10 @@ drtCfg.addParameterSet(new DrtWaitTimeSkimParams());   // 15-min bins, square-gr
 drtCfg.addParameterSet(new DrtRideTimeSkimParams());   // optional, and independent of the above
 
 Controler controler = DrtControlerCreator.createControler(config, scenario, false);
-controler.addOverridingModule(new MultiModeDrtWaitTimeSkimModule());
+controler.addOverridingModule(new MultiModeDrtSkimsModule());
 ```
 
-`MultiModeDrtWaitTimeSkimModule` must be an *overriding* module: it replaces the
+`MultiModeDrtSkimsModule` must be an *overriding* module: it replaces the
 `RaptorIntermodalAccessEgress` binding made by `SwissRailRaptorModule`. It is a no-op if no DRT mode
 declares the parameter set, so installing it unconditionally is safe.
 
@@ -297,7 +297,7 @@ meanings, and deliberately has **no** default-factor parameter.
   are usually direct but occasionally badly detoured is reported at its mean, so the skim understates
   the tail exactly where sharing is worst. This is the same bias the wait skim carries for rejections.
 - **The package is named for the wait skim alone.** It now also carries the ride-time skim, and
-  `MultiModeDrtWaitTimeSkimModule` installs both. Renaming the package and that module is worth doing
+  `MultiModeDrtSkimsModule` installs both. Renaming the package and that module is worth doing
   before this merges; it was left alone here to keep the review diff about behaviour.
 - **A zone system that does not cover the service area starves the skim.** Requests whose origin
   falls outside it are counted and warned about at the end of each iteration, not silently dropped.
