@@ -59,7 +59,12 @@ class ParkingPoolsIntegrationTest {
 			protected void configureQSim() {
 				addQSimComponentBinding("ParkingOccupancyOberserver").to(ParkingOccupancyObserver.class);
 				addMobsimScopeEventHandlerBinding().to(ParkingOccupancyObserver.class);
+				// One instance, bound both ways: the vehicle handler decides who parks, and it learns which vehicles
+				// are transit from TransitDriverStartsEvent. Without the event binding it never learns, and transit
+				// vehicles whose type has networkMode car are parked and counted as kerb demand.
+				bind(ParkingVehicleHandler.class).in(Singleton.class);
 				addVehicleHandlerBinding().to(ParkingVehicleHandler.class);
+				addMobsimScopeEventHandlerBinding().to(ParkingVehicleHandler.class);
 				addParkingSearchTimeCalculatorBinding().toInstance(new ConstantArrivalTime(1));
 			}
 		});
