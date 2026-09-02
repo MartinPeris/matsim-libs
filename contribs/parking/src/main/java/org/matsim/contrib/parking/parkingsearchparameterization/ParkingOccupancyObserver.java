@@ -54,6 +54,8 @@ public class ParkingOccupancyObserver implements MobsimScopeEventHandler, Vehicl
 	int[] onStreetOccupancy;
 	int[] offStreetOccupancy;
 	int[] offStreetPeakOccupancy;
+	/** How many parking events on the link went off-street because the kerb was full. */
+	int[] offStreetSpilloverEvents;
 	/** Which pool each currently parked vehicle occupies. Absent for vehicles seeded as initial occupancy. */
 	private final Map<Id<Vehicle>, Boolean> parkedOnStreetByVehicle = new HashMap<>();
 
@@ -108,6 +110,7 @@ public class ParkingOccupancyObserver implements MobsimScopeEventHandler, Vehicl
 			onStreetOccupancy[index]++;
 		} else {
 			offStreetOccupancy[index]++;
+			offStreetSpilloverEvents[index]++;
 			offStreetPeakOccupancy[index] = Math.max(offStreetPeakOccupancy[index], offStreetOccupancy[index]);
 		}
 		parkedOnStreetByVehicle.put(event.getVehicleId(), onStreet);
@@ -155,6 +158,7 @@ public class ParkingOccupancyObserver implements MobsimScopeEventHandler, Vehicl
 		onStreetOccupancy = new int[linkCount];
 		offStreetOccupancy = new int[linkCount];
 		offStreetPeakOccupancy = new int[linkCount];
+		offStreetSpilloverEvents = new int[linkCount];
 		parkedOnStreetByVehicle.clear();
 
 		Map<Id<Link>, ParkingCapacityInitializer.ParkingInitialPools> initialPools = parkingCapacityInitializer.initializePools();
@@ -212,6 +216,28 @@ public class ParkingOccupancyObserver implements MobsimScopeEventHandler, Vehicl
 	/** Highest simultaneous off-street occupancy seen on the link this iteration: the off-street supply it needed. */
 	synchronized int getOffStreetPeakOccupancy(Id<Link> linkId) {
 		return offStreetPeakOccupancy[indexByLinkId.get(linkId)];
+	}
+
+	/**
+	 * Number of parking events that spilled off-street this iteration. Distinct from the peak: many brief overflows
+	 * and one sustained overflow give the same peak but call for different interventions.
+	 */
+	synchronized int getOffStreetSpilloverEvents(Id<Link> linkId) {
+		return offStreetSpilloverEvents[indexByLinkId.get(linkId)];
+	}
+
+	/** Network-wide sums of the current pool state, for cheap time-series sampling. */
+	synchronized PoolTotals getPoolTotals() {
+		long onCap = 0, onOcc = 0, offOcc = 0;
+		for (int i = 0; i < capacity.length; i++) {
+			onCap += onStreetCapacity[i];
+			onOcc += onStreetOccupancy[i];
+			offOcc += offStreetOccupancy[i];
+		}
+		return new PoolTotals(onCap, onOcc, offOcc);
+	}
+
+	record PoolTotals(long onStreetCapacity, long onStreetOccupancy, long offStreetOccupancy) {
 	}
 
 	private void writeInitialParkingOccupancy(int iteration, Map<Id<Link>, ParkingCapacityInitializer.ParkingInitialPools> initialPools) {
