@@ -19,6 +19,7 @@ import org.matsim.core.events.MobsimScopeEventHandler;
 import org.matsim.core.mobsim.framework.events.MobsimBeforeSimStepEvent;
 import org.matsim.core.mobsim.framework.listeners.MobsimBeforeSimStepListener;
 import org.matsim.core.utils.io.IOUtils;
+import org.matsim.vehicles.Vehicle;
 
 import java.io.BufferedWriter;
 import java.util.Arrays;
@@ -28,6 +29,12 @@ import java.util.Map;
 /**
  * Tracks link-level parking occupancy during the mobsim and exposes capacity/occupancy
  * snapshots for parking search time calculation.
+ * <p>
+ * Occupancy is kept both as a single total per link, which is what {@link #getParkingCount} reports and what the
+ * search-time functions consume, and as two pools: on-street (kerb) and off-street. A parking vehicle takes an
+ * on-street space if one is free and spills to off-street otherwise; the off-street pool is unbounded here, so a
+ * vehicle is never refused. The pool a vehicle parked in is remembered, so its departure releases the right pool.
+ * The peak off-street occupancy per link is the size of off-street supply the link would have needed.
  */
 public class ParkingOccupancyObserver implements MobsimScopeEventHandler, VehicleEntersTrafficEventHandler, VehicleEndsParkingSearchEventHandler, BeforeMobsimListener, MobsimBeforeSimStepListener {
 	private static final Logger log = org.apache.logging.log4j.LogManager.getLogger(ParkingOccupancyObserver.class);
@@ -41,6 +48,14 @@ public class ParkingOccupancyObserver implements MobsimScopeEventHandler, Vehicl
 	int[] parkingOccupancyOfLastTimeStep;
 	int[] parkingOccupancy;
 	int[] capacity;
+
+	// Pools. The totals above are always the sum of the two occupancies, and capacity[] the sum of the two capacities.
+	int[] onStreetCapacity;
+	int[] onStreetOccupancy;
+	int[] offStreetOccupancy;
+	int[] offStreetPeakOccupancy;
+	/** Which pool each currently parked vehicle occupies. Absent for vehicles seeded as initial occupancy. */
+	private final Map<Id<Vehicle>, Boolean> parkedOnStreetByVehicle = new HashMap<>();
 
 	double lastTimeStep = -1;
 
@@ -57,11 +72,25 @@ public class ParkingOccupancyObserver implements MobsimScopeEventHandler, Vehicl
 		checkTime(event.getTime());
 
 		// unpark vehicle
-		Id<Link> linkId = event.getLinkId();
+		int index = indexByLinkId.get(event.getLinkId());
 
 		// We might have initialized to little initial parking, thus more vehicles enter traffic than expected. In this case, we just ignore the event.
-		if (parkingOccupancy[indexByLinkId.get(linkId)] > 0) {
-			parkingOccupancy[indexByLinkId.get(linkId)]--;
+		if (parkingOccupancy[index] <= 0) {
+			parkedOnStreetByVehicle.remove(event.getVehicleId());
+			return;
+		}
+		parkingOccupancy[index]--;
+
+		Boolean wasOnStreet = parkedOnStreetByVehicle.remove(event.getVehicleId());
+		if (wasOnStreet == null) {
+			// Seeded as initial occupancy, so its pool is unknown. Initial occupancy filled on-street first, so
+			// release in the same order the unknown vehicles were seeded: on-street while any remains, then off-street.
+			wasOnStreet = onStreetOccupancy[index] > 0;
+		}
+		if (wasOnStreet) {
+			onStreetOccupancy[index]--;
+		} else {
+			offStreetOccupancy[index]--;
 		}
 	}
 
@@ -70,8 +99,18 @@ public class ParkingOccupancyObserver implements MobsimScopeEventHandler, Vehicl
 		checkTime(event.getTime());
 
 		// park vehicle
-		Id<Link> linkId = event.getLinkId();
-		parkingOccupancy[indexByLinkId.get(linkId)]++;
+		int index = indexByLinkId.get(event.getLinkId());
+		parkingOccupancy[index]++;
+
+		// Kerb first; off-street only once the kerb is full. Off-street is not capped here, so nobody is refused.
+		boolean onStreet = onStreetOccupancy[index] < onStreetCapacity[index];
+		if (onStreet) {
+			onStreetOccupancy[index]++;
+		} else {
+			offStreetOccupancy[index]++;
+			offStreetPeakOccupancy[index] = Math.max(offStreetPeakOccupancy[index], offStreetOccupancy[index]);
+		}
+		parkedOnStreetByVehicle.put(event.getVehicleId(), onStreet);
 	}
 
 	@Override
@@ -112,20 +151,33 @@ public class ParkingOccupancyObserver implements MobsimScopeEventHandler, Vehicl
 		capacity = new int[linkCount];
 		parkingOccupancy = new int[linkCount];
 		parkingOccupancyOfLastTimeStep = new int[linkCount];
+		onStreetCapacity = new int[linkCount];
+		onStreetOccupancy = new int[linkCount];
+		offStreetOccupancy = new int[linkCount];
+		offStreetPeakOccupancy = new int[linkCount];
+		parkedOnStreetByVehicle.clear();
 
-		Map<Id<Link>, ParkingCapacityInitializer.ParkingInitialCapacity> initialCapacities = parkingCapacityInitializer.initialize();
-		writeInitialParkingOccupancy(iteration, initialCapacities);
+		Map<Id<Link>, ParkingCapacityInitializer.ParkingInitialPools> initialPools = parkingCapacityInitializer.initializePools();
+		writeInitialParkingOccupancy(iteration, initialPools);
 
 		int counter = 0;
 		for (Id<Link> id : network.getLinks().keySet()) {
 			indexByLinkId.put(id, counter++);
 
-			ParkingCapacityInitializer.ParkingInitialCapacity parkingInitialCapacity = initialCapacities.getOrDefault(id, new ParkingCapacityInitializer.ParkingInitialCapacity(0, 0));
+			ParkingCapacityInitializer.ParkingInitialPools pools = initialPools.getOrDefault(id, new ParkingCapacityInitializer.ParkingInitialPools(0, 0, 0));
 			int index = indexByLinkId.get(id);
 
-			capacity[index] = parkingInitialCapacity.capacity();
-			parkingOccupancyOfLastTimeStep[index] = parkingInitialCapacity.occupancy();
-			parkingOccupancy[index] = parkingInitialCapacity.occupancy();
+			capacity[index] = pools.capacity();
+			onStreetCapacity[index] = pools.onStreetCapacity();
+
+			// Seed initial occupancy kerb-first as well, so a link that starts full starts with its kerb full.
+			int occupancy = pools.occupancy();
+			onStreetOccupancy[index] = Math.min(occupancy, pools.onStreetCapacity());
+			offStreetOccupancy[index] = occupancy - onStreetOccupancy[index];
+			offStreetPeakOccupancy[index] = offStreetOccupancy[index];
+
+			parkingOccupancyOfLastTimeStep[index] = occupancy;
+			parkingOccupancy[index] = occupancy;
 		}
 	}
 
@@ -145,7 +197,24 @@ public class ParkingOccupancyObserver implements MobsimScopeEventHandler, Vehicl
 		return result;
 	}
 
-	private void writeInitialParkingOccupancy(int iteration, Map<Id<Link>, ParkingCapacityInitializer.ParkingInitialCapacity> initialCapacities) {
+	synchronized int getOnStreetCapacity(Id<Link> linkId) {
+		return onStreetCapacity[indexByLinkId.get(linkId)];
+	}
+
+	synchronized int getOnStreetOccupancy(Id<Link> linkId) {
+		return onStreetOccupancy[indexByLinkId.get(linkId)];
+	}
+
+	synchronized int getOffStreetOccupancy(Id<Link> linkId) {
+		return offStreetOccupancy[indexByLinkId.get(linkId)];
+	}
+
+	/** Highest simultaneous off-street occupancy seen on the link this iteration: the off-street supply it needed. */
+	synchronized int getOffStreetPeakOccupancy(Id<Link> linkId) {
+		return offStreetPeakOccupancy[indexByLinkId.get(linkId)];
+	}
+
+	private void writeInitialParkingOccupancy(int iteration, Map<Id<Link>, ParkingCapacityInitializer.ParkingInitialPools> initialPools) {
 		String file = outputDirectoryHierarchy.getIterationFilename(iteration, ParkingUtils.PARKING_INITIAL_FILE);
 		BufferedWriter bufferedWriter = IOUtils.getBufferedWriter(file);
 
@@ -155,7 +224,7 @@ public class ParkingOccupancyObserver implements MobsimScopeEventHandler, Vehicl
 				.setDelimiter(config.global().getDefaultDelimiter().charAt(0))
 				.setHeader(new String[]{"linkId", "capacity", "occupancy"}).build());
 
-			for (Map.Entry<Id<Link>, ParkingCapacityInitializer.ParkingInitialCapacity> entry : initialCapacities.entrySet()) {
+			for (Map.Entry<Id<Link>, ParkingCapacityInitializer.ParkingInitialPools> entry : initialPools.entrySet()) {
 				csvPrinter.printRecord(entry.getKey(), entry.getValue().capacity(), entry.getValue().occupancy());
 			}
 			csvPrinter.close();

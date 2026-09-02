@@ -55,4 +55,27 @@ public class PlanBasedParkingCapacityInitializer implements ParkingCapacityIniti
 		return capacity;
 	}
 
+
+	/**
+	 * Same as {@link #initialize()}, but keeps the on-street and off-street pools apart. The occupancy is the count of
+	 * agents whose first car departure of the day starts on the link; how it is distributed over the pools is decided
+	 * by whoever consumes it.
+	 */
+	@Override
+	public Map<Id<Link>, ParkingInitialPools> initializePools() {
+		ZeroParkingCapacityInitializer zeroParkingCapacityInitializer = new ZeroParkingCapacityInitializer(network, config);
+		Map<Id<Link>, ParkingInitialPools> pools = zeroParkingCapacityInitializer.initializePools();
+		population.getPersons().values().stream()
+			.map(p -> PopulationUtils.getFirstActivityOfDayBeforeDepartingWithCar(p.getSelectedPlan()))
+			.filter(Objects::nonNull)
+			.map(Activity::getLinkId)
+			.collect(Collectors.groupingBy(l -> l, Collectors.counting()))
+			.forEach((linkId, count) -> pools.compute(linkId, (l, p) -> {
+				if (p == null) {
+					return new ParkingInitialPools(0, 0, count.intValue());
+				}
+				return new ParkingInitialPools(p.onStreetCapacity(), p.offStreetCapacity(), count.intValue());
+			}));
+		return pools;
+	}
 }
