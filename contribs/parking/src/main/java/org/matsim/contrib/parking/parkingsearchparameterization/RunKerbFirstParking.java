@@ -4,6 +4,7 @@ import com.google.inject.Singleton;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.matsim.api.core.v01.Scenario;
+import org.matsim.api.core.v01.TransportMode;
 import org.matsim.core.config.Config;
 import org.matsim.core.config.ConfigUtils;
 import org.matsim.core.controler.AbstractModule;
@@ -81,11 +82,14 @@ public final class RunKerbFirstParking {
 	private static void logEligibility(Scenario scenario, double minimumLanes) {
 		KerbParkingEligibility eligibility = new KerbParkingEligibility.MinimumLanes(minimumLanes);
 		long total = scenario.getNetwork().getLinks().size();
-		long eligible = scenario.getNetwork().getLinks().values().stream().filter(eligibility::isEligible).count();
+		long carLinks = scenario.getNetwork().getLinks().values().stream()
+			.filter(l -> l.getAllowedModes().contains(TransportMode.car)).count();
+		long eligible = scenario.getNetwork().getLinks().values().stream()
+			.filter(l -> l.getAllowedModes().contains(TransportMode.car)).filter(eligibility::isEligible).count();
 		long attributed = scenario.getNetwork().getLinks().values().stream()
 			.filter(l -> l.getAttributes().getAttribute(ParkingUtils.LINK_ON_STREET_SPOTS) != null).count();
-		log.info("Kerb parking eligibility: minimumLanes={} -> {} of {} links eligible ({}%); {} links carry an explicit {} attribute",
-			minimumLanes, eligible, total, String.format("%.1f", 100.0 * eligible / Math.max(1, total)), attributed, ParkingUtils.LINK_ON_STREET_SPOTS);
+		log.info("Kerb parking eligibility: minimumLanes={} -> {} of {} car links eligible ({}%; network has {} links in total); {} links carry an explicit {} attribute",
+			minimumLanes, eligible, carLinks, String.format("%.1f", 100.0 * eligible / Math.max(1, carLinks)), total, attributed, ParkingUtils.LINK_ON_STREET_SPOTS);
 	}
 
 }
