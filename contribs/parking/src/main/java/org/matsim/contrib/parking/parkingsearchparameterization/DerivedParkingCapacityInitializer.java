@@ -2,6 +2,7 @@ package org.matsim.contrib.parking.parkingsearchparameterization;
 
 import com.google.inject.Inject;
 import org.matsim.api.core.v01.Id;
+import org.matsim.api.core.v01.TransportMode;
 import org.matsim.api.core.v01.network.Link;
 import org.matsim.api.core.v01.network.Network;
 import org.matsim.core.config.Config;
@@ -13,8 +14,8 @@ import java.util.Map;
  * Parking capacity from link attributes where they exist, derived from link geometry where they do not.
  * <p>
  * A link that carries {@code onstreet_spots} is taken at face value, exactly as {@link ZeroParkingCapacityInitializer}
- * does. A link without it gets {@code floor(length / bayLength)} kerb spaces if {@link KerbParkingEligibility} says
- * it may have kerb parking, and none otherwise. {@code offstreet_spots} is read from the attribute if present and is
+ * does. A link without it gets {@code floor(length / bayLength)} kerb spaces if it allows the car mode and
+ * {@link KerbParkingEligibility} says it may have kerb parking, and none otherwise. {@code offstreet_spots} is read from the attribute if present and is
  * zero otherwise; in the kerb-first model the off-street pool is unbounded anyway, so this number only matters when a
  * capacity constraint is applied to it.
  * <p>
@@ -67,7 +68,9 @@ public class DerivedParkingCapacityInitializer implements ParkingCapacityInitial
 		if (isOnStreetFromAttribute(link)) {
 			return attribute(link, ParkingUtils.LINK_ON_STREET_SPOTS);
 		}
-		if (!eligibility.isEligible(link)) {
+		// Only links a car can drive on can have derived kerb parking. Pt-only links in a merged network often
+		// carry two or more lanes and would otherwise be handed kerb spaces no car can ever reach.
+		if (!link.getAllowedModes().contains(TransportMode.car) || !eligibility.isEligible(link)) {
 			return 0;
 		}
 		return (int) Math.floor(link.getLength() / params.bayLengthMetres());

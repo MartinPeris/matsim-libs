@@ -114,6 +114,19 @@ class DerivedParkingCapacityInitializerTest {
 	}
 
 	@Test
+	void linksWithoutCarModeGetNoDerivedKerbParking() {
+		Fixture f = new Fixture(2.0);
+		f.link.setAllowedModes(java.util.Set.of("pt"));
+
+		assertEquals(0, f.derive(new KerbParkingEligibility.MinimumLanes()).get(f.id).onStreetCapacity(),
+			"a two-lane pt-only link is not kerb parking for cars, whatever the lane rule says");
+
+		f.link.getAttributes().putAttribute(LINK_ON_STREET_SPOTS, 4);
+		assertEquals(4, f.derive(new KerbParkingEligibility.MinimumLanes()).get(f.id).onStreetCapacity(),
+			"an explicit attribute is still honoured; the car-mode check only gates derivation");
+	}
+
+	@Test
 	void bayLengthMustBePositive() {
 		assertThrows(IllegalArgumentException.class, () -> new KerbParkingSupplyParams(0.0));
 		assertThrows(IllegalArgumentException.class, () -> new KerbParkingSupplyParams(-1.0));
