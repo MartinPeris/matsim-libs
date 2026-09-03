@@ -213,9 +213,37 @@ two different rates means. It is recorded here because the first version of the 
 in precisely this way — by assuming the core's response to a changed `accessTime` without checking
 its sign.
 
+## Direct DRT trips
+
+Everything above reaches routing through `SkimAwareRaptorIntermodalAccessEgress`, which
+SwissRailRaptor consults only for intermodal access and egress legs. A trip made *entirely* by DRT
+never passes through Raptor, so on that path nothing knew which origin-destination pairs the fleet
+serves well. That is the case where agents try a corridor DRT under mode choice, experience long
+detours, and abandon it once innovation stops: the score tells them it was bad, but nothing ever
+told them *where* it would be bad before they chose it.
+
+`SkimBackedDrtEstimator` is the second consumer of the same two skims, plugged into DRT's existing
+estimator architecture rather than beside it. It composes `DirectTripBasedDrtEstimator` from a
+`RideDurationEstimator` and a `WaitingTimeEstimator` backed by the ride and wait skims, and
+`DrtSkimsModule` binds it as the mode's `DrtEstimator`. That feeds:
+
+- `MultiModalDrtLegEstimator` (informed mode choice), so a DRT alternative is scored from an
+  OD-specific expected ride and wait instead of the constraint ceiling and a constant;
+- `EstimationRoutingModule` under `estimateAndTeleport`;
+- `DrtEstimateAnalyzer`, which writes `drt_estimates_<mode>.csv` — the per-iteration error of the
+  estimate against what the mobsim then did. Watch that file for convergence.
+
+Where the ride skim has nothing for a pair, the estimate falls back to the scenario's own
+`maxTravelTimeAlpha × direct + maxTravelTimeBeta`, so an unobserved pair is estimated exactly as a
+routed leg is today. The rejection rate is left at zero for now; see the limitations.
+
+This only helps a mode-choice mechanism that *consults* the estimate. Plain `SubtourModeChoice`
+picks modes at random and learns from scores alone, and on that path the estimator is never asked.
+
 ## Where it surfaces
 
-1. **In routing and scoring**, via `SkimAwareRaptorIntermodalAccessEgress`, as above.
+1. **In routing and scoring**, via `SkimAwareRaptorIntermodalAccessEgress` for intermodal legs and
+   `SkimBackedDrtEstimator` for direct DRT trips, as above.
 2. **As files**, per iteration directory: `drtWaitTimeSkim_<mode>.csv` with columns
    `zone, timeBin, binStart, binEnd, observations, rejections, waitTime, carriedForward`, and
    `drtRideTimeSkim_<mode>.csv` with
@@ -287,6 +315,16 @@ meanings, and deliberately has **no** default-factor parameter.
   sit beside the wait times in the CSV and the per-iteration rate is logged as a warning, so the bias
   is visible rather than hidden. Folding a rejection penalty into the cost is a modelling decision
   left open.
+- **The ride-time factor absorbs dwell, not just detour.** It is passenger in-vehicle time over the
+  unshared ride, and in-vehicle time includes every intermediate stop's `stopDuration` and any time
+  the vehicle stands. In the Kelheim test scenario vehicles drive only 8-20% farther than direct,
+  yet the mean factor is about 4, with a spread from 1.0 to 11. That is the right quantity for an
+  estimator to predict, but a largely additive cost is being modelled multiplicatively, so short
+  rides in a pair are over-predicted and long ones under-predicted. A `factor x direct + additive`
+  form would fit better; it is not done here.
+- **The direct-DRT estimator reports a rejection rate of zero.** The wait skim counts rejections
+  per zone and bin but does not yet publish a damped rate, so `SkimBackedDrtEstimator` leaves the
+  builder's default. Informed mode choice does not read the rate today; `estimateAndTeleport` would.
 - **Carried-forward values never expire.** A zone observed once and never again keeps that value for
   the rest of the run. It is reported as `ZONE_TIME_BIN_CARRIED` rather than as fresh measurement,
   but there is no staleness cutoff.
