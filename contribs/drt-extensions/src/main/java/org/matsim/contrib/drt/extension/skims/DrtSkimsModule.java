@@ -27,6 +27,9 @@ import org.matsim.api.core.v01.network.Network;
 import org.matsim.contrib.common.zones.ZoneSystem;
 import org.matsim.contrib.common.zones.ZoneSystemUtils;
 import org.matsim.contrib.drt.analysis.DrtEventSequenceCollector;
+import org.matsim.contrib.drt.estimator.DrtEstimatorModule;
+import org.matsim.contrib.drt.estimator.DrtEstimatorParams;
+import org.matsim.contrib.drt.optimizer.constraints.DrtOptimizationConstraintsSetImpl;
 import org.matsim.contrib.drt.run.DrtConfigGroup;
 import org.matsim.contrib.dvrp.run.AbstractDvrpModeModule;
 import org.matsim.core.controler.MatsimServices;
@@ -44,6 +47,7 @@ import org.matsim.core.controler.MatsimServices;
  */
 public final class DrtSkimsModule extends AbstractDvrpModeModule {
 
+	private final DrtConfigGroup drtCfg;
 	@Nullable
 	private final DrtWaitTimeSkimParams waitParams;
 	@Nullable
@@ -52,6 +56,7 @@ public final class DrtSkimsModule extends AbstractDvrpModeModule {
 	public DrtSkimsModule(DrtConfigGroup drtCfg, @Nullable DrtWaitTimeSkimParams waitParams,
 			@Nullable DrtRideTimeSkimParams rideParams) {
 		super(drtCfg.getMode());
+		this.drtCfg = drtCfg;
 		this.waitParams = waitParams;
 		this.rideParams = rideParams;
 	}
@@ -93,5 +98,30 @@ public final class DrtSkimsModule extends AbstractDvrpModeModule {
 					.addBinding(getMode())
 					.to(modalKey(ZonalDrtRideTimeSkim.class));
 		}
+
+		if (waitParams != null || rideParams != null) {
+			installSkimBackedEstimator();
+		}
+	}
+
+	/**
+	 * The second consumer: a {@link org.matsim.contrib.drt.estimator.DrtEstimator} for trips made
+	 * entirely by DRT, which never pass through SwissRailRaptor. Under {@code fullSimulation}
+	 * {@code DrtModeModule} does not install the estimator infrastructure, so it is installed here;
+	 * under {@code estimateAndTeleport} it already has, and only the estimator itself is bound.
+	 */
+	private void installSkimBackedEstimator() {
+		if (drtCfg.getSimulationType() != DrtConfigGroup.SimulationType.estimateAndTeleport) {
+			install(new DrtEstimatorModule(getMode(), drtCfg,
+					drtCfg.getDrtEstimatorParams().orElseGet(DrtEstimatorParams::new)));
+		}
+		DrtOptimizationConstraintsSetImpl constraints = drtCfg.addOrGetDrtOptimizationConstraintsParams()
+				.addOrGetDefaultDrtOptimizationConstraintsSet();
+		DrtEstimatorModule.bindEstimator(binder(), getMode()).toProvider(modalProvider(getter ->
+				SkimBackedDrtEstimator.create(
+						waitParams != null ? getter.getModal(ZonalDrtWaitTimeSkim.class) : null,
+						rideParams != null ? getter.getModal(ZonalDrtRideTimeSkim.class) : null,
+						constraints.getMaxTravelTimeAlpha(), constraints.getMaxTravelTimeBeta())))
+				.asEagerSingleton();
 	}
 }
