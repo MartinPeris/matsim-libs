@@ -27,6 +27,8 @@ import org.matsim.contrib.drt.extension.insertion.spatialFilter.DrtSpatialReques
 import org.matsim.contrib.drt.extension.operations.DrtOperationsParams;
 import org.matsim.contrib.drt.extension.preemptive_rejection.PreemptiveRejectionParams;
 import org.matsim.contrib.drt.extension.services.services.params.DrtServicesParams;
+import org.matsim.contrib.drt.extension.skims.DrtRideTimeSkimParams;
+import org.matsim.contrib.drt.extension.skims.DrtWaitTimeSkimParams;
 import org.matsim.contrib.drt.optimizer.constraints.DrtOptimizationConstraintsSet;
 import org.matsim.contrib.drt.optimizer.constraints.DrtOptimizationConstraintsSetImpl;
 import org.matsim.contrib.drt.run.DrtConfigGroup;
@@ -55,6 +57,12 @@ public class DrtWithExtensionsConfigGroup extends DrtConfigGroup {
 	@Nullable
 	private PreemptiveRejectionParams preemptiveRejectionParams;
 
+	@Nullable
+	private DrtWaitTimeSkimParams waitTimeSkimParams;
+
+	@Nullable
+	private DrtRideTimeSkimParams rideTimeSkimParams;
+
 	public DrtWithExtensionsConfigGroup() {
 		this(DrtOptimizationConstraintsSetImpl::new);
 	}
@@ -76,6 +84,14 @@ public class DrtWithExtensionsConfigGroup extends DrtConfigGroup {
 		// Optional
 		addDefinition(DrtSpatialRequestFleetFilterParams.SET_NAME, DrtSpatialRequestFleetFilterParams::new, () -> drtSpatialRequestFleetFilterParams,
 			params -> drtSpatialRequestFleetFilterParams = (DrtSpatialRequestFleetFilterParams) params);
+
+		// Optional
+		addDefinition(DrtWaitTimeSkimParams.SET_NAME, DrtWaitTimeSkimParams::new, () -> waitTimeSkimParams,
+			params -> waitTimeSkimParams = (DrtWaitTimeSkimParams) params);
+
+		// Optional
+		addDefinition(DrtRideTimeSkimParams.SET_NAME, DrtRideTimeSkimParams::new, () -> rideTimeSkimParams,
+			params -> rideTimeSkimParams = (DrtRideTimeSkimParams) params);
 
 		// Optional
 		addDefinition(PreemptiveRejectionParams.SET_NAME, PreemptiveRejectionParams::new, 
@@ -100,5 +116,13 @@ public class DrtWithExtensionsConfigGroup extends DrtConfigGroup {
 
 	public Optional<PreemptiveRejectionParams> getPreemptiveRejectionParams() {
 		return Optional.ofNullable(preemptiveRejectionParams);
+	}
+
+	public Optional<DrtRideTimeSkimParams> getRideTimeSkimParams() {
+		return Optional.ofNullable(rideTimeSkimParams);
+	}
+
+	public Optional<DrtWaitTimeSkimParams> getWaitTimeSkimParams() {
+		return Optional.ofNullable(waitTimeSkimParams);
 	}
 }
