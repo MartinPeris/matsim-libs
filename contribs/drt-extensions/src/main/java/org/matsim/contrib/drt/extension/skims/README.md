@@ -237,6 +237,21 @@ Where the ride skim has nothing for a pair, the estimate falls back to the scena
 `maxTravelTimeAlpha × direct + maxTravelTimeBeta`, so an unobserved pair is estimated exactly as a
 routed leg is today. The rejection rate is left at zero for now; see the limitations.
 
+**Against a control.** `RunDrtSkimsInformedModeChoiceIT` runs Kelheim twice with informed mode
+choice: once with the skims, once with a constant estimator fixed at that same ceiling. Mean absolute
+error of the estimate against what the mobsim then did, in seconds:
+
+| iteration | wait, skims | wait, ceiling | ride, skims | ride, ceiling |
+| --- | --- | --- | --- | --- |
+| 0 | 1633 | 1065 | 947 | 886 |
+| 2 | 547 | 1148 | 590 | 893 |
+
+Iteration 0 differs between the runs because the skims module also installs the Raptor decorator,
+which acts on Kelheim's intermodal DRT legs from the start. The ceiling's error does not fall because
+it learns; it moves only because the system under it drifts. Later iterations vary run to run
+(Kelheim uses four threads and the insertion search is parallel), so the test asserts direction and
+ordering, not these numbers.
+
 This only helps a mode-choice mechanism that *consults* the estimate. Plain `SubtourModeChoice`
 picks modes at random and learns from scores alone, and on that path the estimator is never asked.
 
