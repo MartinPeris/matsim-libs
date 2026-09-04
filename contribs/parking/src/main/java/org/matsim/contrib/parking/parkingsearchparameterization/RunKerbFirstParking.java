@@ -18,7 +18,7 @@ import org.matsim.core.scenario.ScenarioUtils;
 /**
  * Runs a scenario with kerb-first parking accounting and writes the spillover report.
  * <p>
- * Usage: {@code RunKerbFirstParking <config.xml> <outputDir> [iterations=0] [minimumLanes=2] [bayLengthMetres=6]}.
+ * Usage: {@code RunKerbFirstParking <config.xml> <outputDir> [iterations=0] [minimumLanes=1] [bayLengthMetres=6]}.
  * <p>
  * Every car arrival parks: on the kerb if a derived or attributed space is free, off-street otherwise, never refused.
  * Plans, routes and scores are unaffected; this is measurement only. The eligibility rule and bay length used are
@@ -33,7 +33,7 @@ public final class RunKerbFirstParking {
 
 	public static void main(String[] args) {
 		if (args.length < 2) {
-			throw new IllegalArgumentException("usage: <config.xml> <outputDir> [iterations=0] [minimumLanes=2] [bayLengthMetres=6]");
+			throw new IllegalArgumentException("usage: <config.xml> <outputDir> [iterations=0] [minimumLanes=1] [bayLengthMetres=6]");
 		}
 		int iterations = args.length > 2 ? Integer.parseInt(args[2]) : 0;
 		double minimumLanes = args.length > 3 ? Double.parseDouble(args[3]) : KerbParkingEligibility.MinimumLanes.DEFAULT_MINIMUM_LANES;

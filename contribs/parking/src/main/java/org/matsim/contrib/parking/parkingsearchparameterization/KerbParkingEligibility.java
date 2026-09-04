@@ -14,12 +14,17 @@ public interface KerbParkingEligibility {
 	boolean isEligible(Link link);
 
 	/**
-	 * Kerb parking on links with at least {@code minimumLanes} lanes. The default of two reflects the working
-	 * assumption that a single-lane street cannot give up a lane to parked vehicles; see the interface note on how
-	 * strongly this depends on network coding conventions.
+	 * Kerb parking on links with at least {@code minimumLanes} lanes.
+	 * <p>
+	 * The default is one lane, i.e. every car link. The earlier default of two assumed a single-lane street cannot
+	 * give up a lane to parked vehicles; validation against hand-counted kerb supply in Berlin (Bischoff &amp; Nagel
+	 * 2017) showed that rule under-derives supply about 14-fold, because the streets where people actually park
+	 * are coded single-lane in OSM-derived networks, while a one-lane rule lands within 0.6 to 1.2 times the
+	 * counts. Cars squeeze past parked vehicles; the capacity consequence belongs to the lane-consumption model, not
+	 * to eligibility. Pass {@code 2.0} explicitly to reproduce the old behaviour.
 	 */
 	final class MinimumLanes implements KerbParkingEligibility {
-		public static final double DEFAULT_MINIMUM_LANES = 2.0;
+		public static final double DEFAULT_MINIMUM_LANES = 1.0;
 
 		private final double minimumLanes;
 

@@ -49,11 +49,19 @@ class DerivedParkingCapacityInitializerTest {
 	}
 
 	@Test
+	void defaultRuleAcceptsSingleLaneLinks() {
+		Fixture f = new Fixture(1.0);
+
+		assertEquals(new ParkingInitialPools(16, 0, 0), f.derive(new KerbParkingEligibility.MinimumLanes()).get(f.id),
+			"the default is one lane: every car link may carry kerb parking");
+	}
+
+	@Test
 	void ineligibleLinkWithoutAttributeGetsNoKerbParking() {
 		Fixture f = new Fixture(1.0);
 
-		assertEquals(new ParkingInitialPools(0, 0, 0), f.derive(new KerbParkingEligibility.MinimumLanes()).get(f.id),
-			"a single-lane link is not eligible under the default two-lane rule");
+		assertEquals(new ParkingInitialPools(0, 0, 0), f.derive(new KerbParkingEligibility.MinimumLanes(2.0)).get(f.id),
+			"a single-lane link is not eligible under an explicit two-lane rule");
 	}
 
 	@Test
