@@ -21,6 +21,8 @@ import org.matsim.core.scenario.ScenarioUtils;
  * Usage: {@code RunKerbFirstParking <config.xml> <outputDir> [iterations=0] [minimumLanes=1] [bayLengthMetres=6]}.
  * <p>
  * Every car arrival parks: on the kerb if a derived or attributed space is free, off-street otherwise, never refused.
+ * Eligibility is {@link KerbParkingEligibility#defaults(double)}: no kerb parking on motorway, trunk and link roads,
+ * then the lane threshold.
  * Plans, routes and scores are unaffected; this is measurement only. The eligibility rule and bay length used are
  * logged and should be quoted with any result, because the kerb supply they derive depends on how the network was
  * coded (see {@link KerbParkingEligibility}).
@@ -67,7 +69,7 @@ public final class RunKerbFirstParking {
 			public void install() {
 				bind(ParkingOccupancyObserver.class).in(Singleton.class);
 				bind(ParkingCapacityInitializer.class).to(DerivedParkingCapacityInitializer.class);
-				bind(KerbParkingEligibility.class).toInstance(new KerbParkingEligibility.MinimumLanes(minimumLanes));
+				bind(KerbParkingEligibility.class).toInstance(KerbParkingEligibility.defaults(minimumLanes));
 				bind(KerbParkingSupplyParams.class).toInstance(new KerbParkingSupplyParams(bayLength));
 				bind(ParkingSpilloverReport.class).in(Singleton.class);
 				addControllerListenerBinding().to(ParkingOccupancyObserver.class);
@@ -80,7 +82,7 @@ public final class RunKerbFirstParking {
 	}
 
 	private static void logEligibility(Scenario scenario, double minimumLanes) {
-		KerbParkingEligibility eligibility = new KerbParkingEligibility.MinimumLanes(minimumLanes);
+		KerbParkingEligibility eligibility = KerbParkingEligibility.defaults(minimumLanes);
 		long total = scenario.getNetwork().getLinks().size();
 		long carLinks = scenario.getNetwork().getLinks().values().stream()
 			.filter(l -> l.getAllowedModes().contains(TransportMode.car)).count();
@@ -88,7 +90,7 @@ public final class RunKerbFirstParking {
 			.filter(l -> l.getAllowedModes().contains(TransportMode.car)).filter(eligibility::isEligible).count();
 		long attributed = scenario.getNetwork().getLinks().values().stream()
 			.filter(l -> l.getAttributes().getAttribute(ParkingUtils.LINK_ON_STREET_SPOTS) != null).count();
-		log.info("Kerb parking eligibility: minimumLanes={} -> {} of {} car links eligible ({}%; network has {} links in total); {} links carry an explicit {} attribute",
+		log.info("Kerb parking eligibility: minimumLanes={}, motorway/trunk/*_link excluded -> {} of {} car links eligible ({}%; network has {} links in total); {} links carry an explicit {} attribute",
 			minimumLanes, eligible, carLinks, String.format("%.1f", 100.0 * eligible / Math.max(1, carLinks)), total, attributed, ParkingUtils.LINK_ON_STREET_SPOTS);
 	}
 
