@@ -1,7 +1,9 @@
 package org.matsim.contrib.skims;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 import org.matsim.api.core.v01.Id;
@@ -235,6 +237,34 @@ public final class ObservedTransitWaitTime implements TransitWaitTime, PersonDep
 			return 0.0;
 		}
 		return waits.mean(bin) - scheduled.get(key).get(stopId)[bin];
+	}
+
+	/**
+	 * Every bin with a published value, for writing out. A skim that cannot be inspected cannot be
+	 * believed: without this, a run that changes nothing is indistinguishable from a run whose skim
+	 * found nothing to say.
+	 */
+	List<SkimEntry> entries() {
+		List<SkimEntry> out = new ArrayList<>();
+		measured.forEach((lineRoute, stops) -> stops.forEach((stopId, waits) -> {
+			for (int bin = 0; bin < binCount; bin++) {
+				if (!waits.hasValue(bin)) {
+					continue;
+				}
+				double scheduledWait = scheduled.get(lineRoute).get(stopId)[bin];
+				out.add(new SkimEntry(lineRoute.getFirst().toString(), lineRoute.getSecond().toString(),
+						stopId.toString(), bin * binSize, waits.count(bin), waits.mean(bin), scheduledWait));
+			}
+		}));
+		return out;
+	}
+
+	/** One published bin: what was measured, what the timetable said, and how many observations back it. */
+	record SkimEntry(String line, String route, String stop, double binStart, int observations, double observed,
+			double scheduled) {
+		double excess() {
+			return observed - scheduled;
+		}
 	}
 
 	/** Observations recorded this iteration, before damping. For tests and reporting. */

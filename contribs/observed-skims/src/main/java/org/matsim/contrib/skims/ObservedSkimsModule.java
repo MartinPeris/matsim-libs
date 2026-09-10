@@ -53,6 +53,11 @@ public final class ObservedSkimsModule extends AbstractModule {
 			addControllerListenerBinding().to(ObservedTransitWaitTime.class);
 			bind(RaptorTransferCostCalculator.class).toProvider(TransferCostProvider.class).in(Singleton.class);
 		}
+		if (params.isWaitTimeEnabled() && params.isStopStopTimeEnabled()) {
+			// The writer reports both skims side by side, so it needs both. With only one enabled the
+			// run still works; it simply writes nothing, which is better than half a report.
+			addControllerListenerBinding().to(ObservedSkimsWriter.class);
+		}
 		if (params.isStopStopTimeEnabled()) {
 			bind(ObservedTransitStopStopTime.class).toProvider(StopStopSkimProvider.class).asEagerSingleton();
 			bind(TransitStopStopTime.class).to(ObservedTransitStopStopTime.class);

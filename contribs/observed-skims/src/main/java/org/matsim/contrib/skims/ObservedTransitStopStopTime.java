@@ -1,5 +1,6 @@
 package org.matsim.contrib.skims;
 
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -127,6 +128,29 @@ public final class ObservedTransitStopStopTime implements TransitStopStopTime, V
 			return 0.0;
 		}
 		return times.mean(bin) - scheduled.getOrDefault(pair, times.mean(bin));
+	}
+
+	/** Every pair and bin with a published value, for writing out. See the wait skim's equivalent. */
+	List<SkimEntry> entries() {
+		List<SkimEntry> out = new ArrayList<>();
+		measured.forEach((pair, times) -> {
+			for (int bin = 0; bin < binCount; bin++) {
+				if (!times.hasValue(bin)) {
+					continue;
+				}
+				out.add(new SkimEntry(pair.from().toString(), pair.to().toString(), bin * binSize,
+						times.count(bin), times.mean(bin), scheduled.getOrDefault(pair, 0.0)));
+			}
+		});
+		return out;
+	}
+
+	/** One published bin: what was measured, what the timetable said, and how many observations back it. */
+	record SkimEntry(String fromStop, String toStop, double binStart, int observations, double observed,
+			double scheduled) {
+		double excess() {
+			return observed - scheduled;
+		}
 	}
 
 	/** Observations recorded this iteration, before damping. For tests and reporting. */
