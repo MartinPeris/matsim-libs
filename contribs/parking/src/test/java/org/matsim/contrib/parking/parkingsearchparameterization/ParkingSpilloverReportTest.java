@@ -6,6 +6,7 @@ import org.matsim.api.core.v01.Coord;
 import org.matsim.api.core.v01.Id;
 import org.matsim.api.core.v01.Scenario;
 import org.matsim.api.core.v01.events.VehicleEndsParkingSearch;
+import org.matsim.api.core.v01.events.VehicleEntersTrafficEvent;
 import org.matsim.api.core.v01.network.Link;
 import org.matsim.api.core.v01.network.Network;
 import org.matsim.api.core.v01.network.Node;
@@ -25,6 +26,7 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.matsim.contrib.parking.parkingsearchparameterization.ParkingUtils.LINK_OFF_STREET_SPOTS;
 import static org.matsim.contrib.parking.parkingsearchparameterization.ParkingUtils.LINK_ON_STREET_SPOTS;
 
@@ -56,8 +58,8 @@ class ParkingSpilloverReportTest {
 		f.report.writePerLink(file);
 
 		List<String> lines = read(file);
-		assertEquals("linkId;onStreetCapacity;offStreetPeakOccupancy;spilloverEvents", lines.get(0));
-		assertEquals(List.of("a;1;2;2", "b;1;0;0"), lines.subList(1, lines.size()),
+		assertEquals("linkId;onStreetCapacity;offStreetPeakOccupancy;spilloverEvents;kerbParkingPermitted;nonParkablePeakOccupancy;nonParkableArrivals", lines.get(0));
+		assertEquals(List.of("a;1;2;2;true;0;0", "b;1;0;0;true;0;0"), lines.subList(1, lines.size()),
 			"link a: one kerb space, two spilled, peak two; link b: has capacity so it is listed; link c has nothing and is omitted");
 	}
 
@@ -81,8 +83,8 @@ class ParkingSpilloverReportTest {
 		f.report.writeNetwork(file);
 
 		List<String> lines = read(file);
-		assertEquals("binStart;onStreetCapacity;onStreetOccupancy;offStreetOccupancy", lines.get(0));
-		assertEquals(List.of("00:00:00;2;0;0", "01:00:00;2;1;2", "02:00:00;2;1;2"), lines.subList(1, lines.size()));
+		assertEquals("binStart;onStreetCapacity;onStreetOccupancy;offStreetOccupancy;nonParkableOccupancy", lines.get(0));
+		assertEquals(List.of("00:00:00;2;0;0;0", "01:00:00;2;1;2;0", "02:00:00;2;1;2;0"), lines.subList(1, lines.size()));
 	}
 
 	@Test
@@ -100,7 +102,7 @@ class ParkingSpilloverReportTest {
 
 		List<String> lines = read(file);
 		assertEquals(5, lines.size(), "header plus bins 0, 1, 2 and 3");
-		assertEquals("03:00:00;2;0;0", lines.get(4));
+		assertEquals("03:00:00;2;0;0;0", lines.get(4));
 	}
 
 	@Test
@@ -123,6 +125,117 @@ class ParkingSpilloverReportTest {
 		assertEquals(2, read(file).size(), "header plus the single bin of the new iteration");
 	}
 
+
+	/**
+	 * The point of the extra columns. A motorway that receives an arrival only because an activity coordinate
+	 * snapped to it must not read as demand for off-street parking.
+	 */
+	@Test
+	void arrivalsWhereKerbParkingIsImpossibleAreReportedApartFromOffStreetDemand() throws IOException {
+		Fixture f = new Fixture();
+		f.observer.setKerbParkingEligibility(link -> !"c".equals(link.getId().toString()));
+		f.observer.notifyBeforeMobsim(new BeforeMobsimEvent(null, 0, false));
+		f.report.notifyBeforeMobsim(new BeforeMobsimEvent(null, 0, false));
+
+		f.step(0);
+		f.reportStep(0);
+		f.step(10);
+		f.park(10, "v1");        // link a, takes its one kerb space
+		f.park(10, "v2");        // link a, kerb full, genuine off-street demand
+		f.parkOn(10, "v3", "c"); // link c, kerb parking impossible: an artefact, not demand
+		f.step(3600);
+		f.reportStep(3600);
+
+		String perLink = utils.getOutputDirectory() + "per_link_nonparkable.csv";
+		f.report.writePerLink(perLink);
+		assertEquals(List.of("a;1;1;1;true;0;0", "b;1;0;0;true;0;0", "c;0;1;1;false;1;1"),
+			read(perLink).subList(1, read(perLink).size()),
+			"link a spilled once as real demand; link c's arrival is counted only in the non-parkable columns");
+
+		String network = utils.getOutputDirectory() + "network_nonparkable.csv";
+		f.report.writeNetwork(network);
+		assertEquals("01:00:00;2;1;2;1", read(network).get(2),
+			"two off-street of which one is on a link where kerb parking is impossible, so off-street demand is one");
+	}
+
+	@Test
+	void withoutAnEligibilityRuleEveryLinkCountsAsParkable() throws IOException {
+		Fixture f = new Fixture();
+		f.step(10);
+		f.parkOn(10, "v1", "c");
+
+		String file = utils.getOutputDirectory() + "per_link_default.csv";
+		f.report.writePerLink(file);
+		assertEquals("c;0;1;1;true;0;0", read(file).get(3),
+			"the default rule permits everything, so nothing is ever reported as non-parkable");
+	}
+
+	@Test
+	void aVehicleLeavingANonParkableLinkReleasesTheNonParkableCount() {
+		Fixture f = new Fixture();
+		f.observer.setKerbParkingEligibility(link -> !"c".equals(link.getId().toString()));
+		f.observer.notifyBeforeMobsim(new BeforeMobsimEvent(null, 0, false));
+
+		f.step(10);
+		f.parkOn(10, "v1", "c");
+		assertEquals(1, f.observer.getPoolTotals().nonParkableOccupancy());
+
+		f.step(20);
+		f.observer.handleEvent(new VehicleEntersTrafficEvent(20, Id.createPersonId("v1"), Id.createLinkId("c"),
+			Id.createVehicleId("v1"), "car", 1.0));
+
+		assertEquals(0, f.observer.getPoolTotals().nonParkableOccupancy(), "the vehicle left, so the count drops");
+		assertEquals(0, f.observer.getPoolTotals().offStreetOccupancy());
+		assertEquals(1, f.observer.getNonParkablePeakOccupancy(Id.createLinkId("c")), "but the peak it reached stands");
+	}
+
+	@Test
+	void nonParkableOccupancyNeverExceedsOffStreetOccupancy() {
+		Fixture f = new Fixture();
+		f.observer.setKerbParkingEligibility(link -> !"c".equals(link.getId().toString()));
+		f.observer.notifyBeforeMobsim(new BeforeMobsimEvent(null, 0, false));
+
+		double time = 0;
+		for (int i = 0; i < 12; i++) {
+			f.step(++time);
+			f.park(time, "a" + i);
+			f.parkOn(time, "c" + i, "c");
+			ParkingOccupancyObserver.PoolTotals totals = f.observer.getPoolTotals();
+			assertTrue(totals.nonParkableOccupancy() <= totals.offStreetOccupancy(),
+				"the non-parkable count is a subset of off-street, never larger");
+		}
+		for (int i = 0; i < 12; i++) {
+			f.step(++time);
+			f.observer.handleEvent(new VehicleEntersTrafficEvent(time, Id.createPersonId("c" + i),
+				Id.createLinkId("c"), Id.createVehicleId("c" + i), "car", 1.0));
+			ParkingOccupancyObserver.PoolTotals totals = f.observer.getPoolTotals();
+			assertTrue(totals.nonParkableOccupancy() <= totals.offStreetOccupancy(),
+				"and still a subset as they leave");
+		}
+		assertEquals(0, f.observer.getPoolTotals().nonParkableOccupancy());
+	}
+
+	/**
+	 * A link seeded with initial occupancy has no remembered pool, so departure infers it. On a link where kerb
+	 * parking is impossible the kerb capacity is zero, so the inference must land on off-street and take the
+	 * non-parkable count down with it.
+	 */
+	@Test
+	void seededOccupancyOnANonParkableLinkIsReleasedFromTheNonParkableCount() {
+		Fixture f = new Fixture();
+		f.seedOffStreetOccupancy("c", 2);
+		f.observer.notifyBeforeMobsim(new BeforeMobsimEvent(null, 0, false));
+
+		assertEquals(2, f.observer.getPoolTotals().nonParkableOccupancy(), "seeded off-street on a non-parkable link");
+
+		f.step(10);
+		f.observer.handleEvent(new VehicleEntersTrafficEvent(10, Id.createPersonId("seed"), Id.createLinkId("c"),
+			Id.createVehicleId("seed"), "car", 1.0));
+
+		assertEquals(1, f.observer.getPoolTotals().nonParkableOccupancy());
+		assertEquals(1, f.observer.getPoolTotals().offStreetOccupancy());
+	}
+
 	@Test
 	void binSizeMustBePositive() {
 		Fixture f = new Fixture();
@@ -141,7 +254,7 @@ class ParkingSpilloverReportTest {
 		final Config config = ConfigUtils.createConfig();
 		final Network network;
 		final OutputDirectoryHierarchy hierarchy;
-		final ParkingOccupancyObserver observer;
+		ParkingOccupancyObserver observer;
 		final ParkingSpilloverReport report;
 
 		Fixture() {
@@ -178,7 +291,30 @@ class ParkingSpilloverReportTest {
 		}
 
 		void park(double time, String vehicle) {
-			observer.handleEvent(new VehicleEndsParkingSearch(time, Id.createPersonId(vehicle), a(), Id.createVehicleId(vehicle), "car"));
+			parkOn(time, vehicle, "a");
+		}
+
+		void parkOn(double time, String vehicle, String link) {
+			observer.handleEvent(new VehicleEndsParkingSearch(time, Id.createPersonId(vehicle), Id.createLinkId(link),
+				Id.createVehicleId(vehicle), "car"));
+		}
+
+		/** Replaces the observer with one whose link starts with vehicles already parked off-street. */
+		void seedOffStreetOccupancy(String link, int vehicles) {
+			Id<Link> id = Id.createLinkId(link);
+			ParkingCapacityInitializer seeded = new ParkingCapacityInitializer() {
+				@Override
+				public java.util.Map<Id<Link>, ParkingInitialCapacity> initialize() {
+					return java.util.Map.of(id, new ParkingInitialCapacity(vehicles, vehicles));
+				}
+
+				@Override
+				public java.util.Map<Id<Link>, ParkingInitialPools> initializePools() {
+					return java.util.Map.of(id, new ParkingInitialPools(0, vehicles, vehicles));
+				}
+			};
+			observer = new ParkingOccupancyObserver(network, seeded, config, hierarchy);
+			observer.setKerbParkingEligibility(l -> !"c".equals(l.getId().toString()));
 		}
 	}
 }

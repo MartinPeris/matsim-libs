@@ -56,10 +56,39 @@ public class ParkingOccupancyObserver implements MobsimScopeEventHandler, Vehicl
 	int[] offStreetPeakOccupancy;
 	/** How many parking events on the link went off-street because the kerb was full. */
 	int[] offStreetSpilloverEvents;
+	/**
+	 * Whether kerb parking is possible on the link at all, as opposed to possible but full or exhausted.
+	 * <p>
+	 * Activity coordinates snap to the nearest car link, so motorways and slip roads receive arrivals no driver
+	 * would make. Those vehicles still have to go somewhere and are parked off-street like any other overflow, but
+	 * counting them as off-street demand overstates the supply a city needs, so they are also counted separately.
+	 */
+	boolean[] kerbParkingPermitted;
+	/**
+	 * Vehicles currently parked off-street on links where kerb parking is not possible at all.
+	 * <p>
+	 * A subset of {@link #offStreetOccupancy}: {@code nonParkableOccupancy[i] <= offStreetOccupancy[i]} always
+	 * holds, and off-street demand net of the snapping artefact is the difference.
+	 */
+	int[] nonParkableOccupancy;
+	int[] nonParkablePeakOccupancy;
+	/** How many parking events on the link happened where kerb parking is not possible at all. */
+	int[] nonParkableArrivalEvents;
 	/** Which pool each currently parked vehicle occupies. Absent for vehicles seeded as initial occupancy. */
 	private final Map<Id<Vehicle>, Boolean> parkedOnStreetByVehicle = new HashMap<>();
 
 	double lastTimeStep = -1;
+
+	/**
+	 * Defaults to treating every link as a possible kerb parking place, so a scenario that binds no eligibility rule
+	 * behaves exactly as before and simply never reports a non-parkable arrival.
+	 */
+	private KerbParkingEligibility eligibility = link -> true;
+
+	@Inject(optional = true)
+	void setKerbParkingEligibility(KerbParkingEligibility eligibility) {
+		this.eligibility = eligibility;
+	}
 
 	@Inject
 	ParkingOccupancyObserver(Network network, ParkingCapacityInitializer parkingCapacityInitializer, Config config, OutputDirectoryHierarchy outputDirectoryHierarchy) {
@@ -93,6 +122,9 @@ public class ParkingOccupancyObserver implements MobsimScopeEventHandler, Vehicl
 			onStreetOccupancy[index]--;
 		} else {
 			offStreetOccupancy[index]--;
+			if (!kerbParkingPermitted[index] && nonParkableOccupancy[index] > 0) {
+				nonParkableOccupancy[index]--;
+			}
 		}
 	}
 
@@ -112,6 +144,11 @@ public class ParkingOccupancyObserver implements MobsimScopeEventHandler, Vehicl
 			offStreetOccupancy[index]++;
 			offStreetSpilloverEvents[index]++;
 			offStreetPeakOccupancy[index] = Math.max(offStreetPeakOccupancy[index], offStreetOccupancy[index]);
+			if (!kerbParkingPermitted[index]) {
+				nonParkableOccupancy[index]++;
+				nonParkableArrivalEvents[index]++;
+				nonParkablePeakOccupancy[index] = Math.max(nonParkablePeakOccupancy[index], nonParkableOccupancy[index]);
+			}
 		}
 		parkedOnStreetByVehicle.put(event.getVehicleId(), onStreet);
 	}
@@ -159,6 +196,10 @@ public class ParkingOccupancyObserver implements MobsimScopeEventHandler, Vehicl
 		offStreetOccupancy = new int[linkCount];
 		offStreetPeakOccupancy = new int[linkCount];
 		offStreetSpilloverEvents = new int[linkCount];
+		kerbParkingPermitted = new boolean[linkCount];
+		nonParkableOccupancy = new int[linkCount];
+		nonParkablePeakOccupancy = new int[linkCount];
+		nonParkableArrivalEvents = new int[linkCount];
 		parkedOnStreetByVehicle.clear();
 
 		Map<Id<Link>, ParkingCapacityInitializer.ParkingInitialPools> initialPools = parkingCapacityInitializer.initializePools();
@@ -173,12 +214,17 @@ public class ParkingOccupancyObserver implements MobsimScopeEventHandler, Vehicl
 
 			capacity[index] = pools.capacity();
 			onStreetCapacity[index] = pools.onStreetCapacity();
+			kerbParkingPermitted[index] = ParkingUtils.kerbParkingPermitted(network.getLinks().get(id), eligibility);
 
 			// Seed initial occupancy kerb-first as well, so a link that starts full starts with its kerb full.
 			int occupancy = pools.occupancy();
 			onStreetOccupancy[index] = Math.min(occupancy, pools.onStreetCapacity());
 			offStreetOccupancy[index] = occupancy - onStreetOccupancy[index];
 			offStreetPeakOccupancy[index] = offStreetOccupancy[index];
+			if (!kerbParkingPermitted[index]) {
+				nonParkableOccupancy[index] = offStreetOccupancy[index];
+				nonParkablePeakOccupancy[index] = offStreetOccupancy[index];
+			}
 
 			parkingOccupancyOfLastTimeStep[index] = occupancy;
 			parkingOccupancy[index] = occupancy;
@@ -226,18 +272,41 @@ public class ParkingOccupancyObserver implements MobsimScopeEventHandler, Vehicl
 		return offStreetSpilloverEvents[indexByLinkId.get(linkId)];
 	}
 
+	/** Whether kerb parking is possible on the link at all, as opposed to full or exhausted. */
+	synchronized boolean isKerbParkingPermitted(Id<Link> linkId) {
+		return kerbParkingPermitted[indexByLinkId.get(linkId)];
+	}
+
+	/**
+	 * Highest simultaneous occupancy on a link where kerb parking is not possible at all. Included in
+	 * {@link #getOffStreetPeakOccupancy}; report the two side by side rather than adding them.
+	 */
+	synchronized int getNonParkablePeakOccupancy(Id<Link> linkId) {
+		return nonParkablePeakOccupancy[indexByLinkId.get(linkId)];
+	}
+
+	/** Parking events this iteration on a link where kerb parking is not possible at all. */
+	synchronized int getNonParkableArrivalEvents(Id<Link> linkId) {
+		return nonParkableArrivalEvents[indexByLinkId.get(linkId)];
+	}
+
 	/** Network-wide sums of the current pool state, for cheap time-series sampling. */
 	synchronized PoolTotals getPoolTotals() {
-		long onCap = 0, onOcc = 0, offOcc = 0;
+		long onCap = 0, onOcc = 0, offOcc = 0, nonParkable = 0;
 		for (int i = 0; i < capacity.length; i++) {
 			onCap += onStreetCapacity[i];
 			onOcc += onStreetOccupancy[i];
 			offOcc += offStreetOccupancy[i];
+			nonParkable += nonParkableOccupancy[i];
 		}
-		return new PoolTotals(onCap, onOcc, offOcc);
+		return new PoolTotals(onCap, onOcc, offOcc, nonParkable);
 	}
 
-	record PoolTotals(long onStreetCapacity, long onStreetOccupancy, long offStreetOccupancy) {
+	/**
+	 * {@code nonParkableOccupancy} counts vehicles that are already in {@code offStreetOccupancy}; off-street demand
+	 * net of the activity-snapping artefact is the difference between the two.
+	 */
+	record PoolTotals(long onStreetCapacity, long onStreetOccupancy, long offStreetOccupancy, long nonParkableOccupancy) {
 	}
 
 	private void writeInitialParkingOccupancy(int iteration, Map<Id<Link>, ParkingCapacityInitializer.ParkingInitialPools> initialPools) {

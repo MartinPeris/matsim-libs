@@ -4,7 +4,6 @@ import com.google.inject.Inject;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.matsim.api.core.v01.Id;
-import org.matsim.api.core.v01.TransportMode;
 import org.matsim.api.core.v01.network.Link;
 import org.matsim.api.core.v01.network.Network;
 import org.matsim.core.config.Config;
@@ -97,7 +96,7 @@ public class DerivedParkingCapacityInitializer implements ParkingCapacityInitial
 		}
 		// Only links a car can drive on can have derived kerb parking. Pt-only links in a merged network often
 		// carry two or more lanes and would otherwise be handed kerb spaces no car can ever reach.
-		if (!link.getAllowedModes().contains(TransportMode.car) || !eligibility.isEligible(link)) {
+		if (!ParkingUtils.kerbParkingPermitted(link, eligibility)) {
 			return 0;
 		}
 		return (int) Math.floor(link.getLength() / params.bayLengthMetres());
