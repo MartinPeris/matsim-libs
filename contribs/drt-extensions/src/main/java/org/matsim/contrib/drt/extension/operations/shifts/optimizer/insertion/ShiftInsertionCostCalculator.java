@@ -34,9 +34,9 @@ public class ShiftInsertionCostCalculator implements InsertionCostCalculator {
 	}
 
 	/*
-	 * @Nico: I replaced the use of that info object with this function. 
-	 * You assume zero dropoff duration here, I think. What you probably 
-	 * would want to add is to take into account the duration of the stop. 
+	 * @Nico: I replaced the use of that info object with this function.
+	 * You assume zero dropoff duration here, I think. What you probably
+	 * would want to add is to take into account the duration of the stop.
 	 */
 	private double calculateStopEnd(DropoffDetourInfo info) {
 		return info.requestDropoffTime;

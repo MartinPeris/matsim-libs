@@ -88,4 +88,3 @@ public class ShiftChangeoverStopWaypoint implements StopWaypoint {
         return emptyLoad;
     }
 }
-

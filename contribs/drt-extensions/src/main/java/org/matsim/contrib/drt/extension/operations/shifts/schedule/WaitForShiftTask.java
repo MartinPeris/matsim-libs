@@ -30,7 +30,7 @@ public class WaitForShiftTask extends DefaultStayTask implements DrtStopTask, Op
 
     private final Id<OperationFacility> facilityId;
     private final Id<ReservationManager.Reservation> reservation;
-    
+
     // Optional charging fields - null for non-electric vehicles
     private ChargingTask chargingTask;
     private double consumedEnergy = 0;
@@ -42,7 +42,7 @@ public class WaitForShiftTask extends DefaultStayTask implements DrtStopTask, Op
                             Id<ReservationManager.Reservation> reservation) {
         this(beginTime, endTime, link, facilityId, reservation, null, 0);
     }
-    
+
     /**
      * Constructor for creating a wait for shift task with electric capabilities.
      */
@@ -115,17 +115,17 @@ public class WaitForShiftTask extends DefaultStayTask implements DrtStopTask, Op
     public Optional<Id<ReservationManager.Reservation>> getReservationId() {
         return Optional.ofNullable(reservation);
     }
-    
+
     /**
      * @return The charging task if this wait task includes charging, empty otherwise
      */
     public Optional<ChargingTask> getChargingTask() {
         return Optional.ofNullable(chargingTask);
     }
-    
+
     /**
      * Adds charging capability to this wait task
-     * 
+     *
      * @param chargingTask The charging task to add
      * @return true if charging was added successfully, false otherwise
      */
@@ -138,10 +138,10 @@ public class WaitForShiftTask extends DefaultStayTask implements DrtStopTask, Op
         }
         return false;
     }
-    
+
     /**
      * Removes charging capability from this task if it's still in the planned state.
-     * 
+     *
      * @return true if charging was removed successfully, false otherwise
      */
     public boolean removeCharging() {
@@ -152,7 +152,7 @@ public class WaitForShiftTask extends DefaultStayTask implements DrtStopTask, Op
         }
         return false;
     }
-    
+
     @Override
     public double getTotalEnergy() {
         return consumedEnergy;

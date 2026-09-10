@@ -57,7 +57,7 @@ import static org.matsim.contrib.drt.schedule.DrtTaskBaseType.DRIVE;
 /**
  * Unified implementation of ShiftTaskScheduler that works with all vehicle types.
  * This implementation handles both standard and electric vehicles using the unified task implementations.
- * 
+ *
  * @author nkuehnel / MOIA
  */
 public class ShiftTaskSchedulerImpl implements ShiftTaskScheduler {
@@ -74,7 +74,7 @@ public class ShiftTaskSchedulerImpl implements ShiftTaskScheduler {
     private final OperationFacilityFinder operationFacilityFinder;
     private final VehicleEntry.EntryFactory vEntryFactory;
     private final ScheduleTimingUpdater timingUpdater;
-    
+
     // Optional charging-related components - null for standard vehicles
     private final ShiftChargingLogic shiftChargingLogic;
     private final ChargingInfrastructure chargingInfrastructure;
@@ -84,14 +84,14 @@ public class ShiftTaskSchedulerImpl implements ShiftTaskScheduler {
      */
     public ShiftTaskSchedulerImpl(
             OperationFacilities operationFacilities,
-            ShiftDrtTaskFactory taskFactory, 
+            ShiftDrtTaskFactory taskFactory,
             Network network,
             OperationFacilityReservationManager facilityReservationManager,
-            ShiftsParams shiftsParams, 
+            ShiftsParams shiftsParams,
             TravelDisutility travelDisutility,
-            TravelTime travelTime, 
+            TravelTime travelTime,
             OperationFacilityFinder operationFacilityFinder,
-            VehicleEntry.EntryFactory vEntryFactory, 
+            VehicleEntry.EntryFactory vEntryFactory,
             ScheduleTimingUpdater timingUpdater) {
         this(operationFacilities, taskFactory, network, facilityReservationManager, shiftsParams,
                 travelDisutility, travelTime, operationFacilityFinder, vEntryFactory, timingUpdater,
@@ -103,14 +103,14 @@ public class ShiftTaskSchedulerImpl implements ShiftTaskScheduler {
      */
     public ShiftTaskSchedulerImpl(
             OperationFacilities operationFacilities,
-            ShiftDrtTaskFactory taskFactory, 
+            ShiftDrtTaskFactory taskFactory,
             Network network,
             OperationFacilityReservationManager facilityReservationManager,
-            ShiftsParams shiftsParams, 
+            ShiftsParams shiftsParams,
             TravelDisutility travelDisutility,
-            TravelTime travelTime, 
+            TravelTime travelTime,
             OperationFacilityFinder operationFacilityFinder,
-            VehicleEntry.EntryFactory vEntryFactory, 
+            VehicleEntry.EntryFactory vEntryFactory,
             ScheduleTimingUpdater timingUpdater,
             ChargingStrategy.Factory chargingStrategyFactory,
             ChargingInfrastructure chargingInfrastructure) {
@@ -124,10 +124,10 @@ public class ShiftTaskSchedulerImpl implements ShiftTaskScheduler {
         this.travelTime = travelTime;
         this.operationFacilityFinder = operationFacilityFinder;
         this.vEntryFactory = vEntryFactory;
-        
+
         // Initialize charging-related components if provided
         this.chargingInfrastructure = chargingInfrastructure;
-        this.shiftChargingLogic = chargingStrategyFactory != null && chargingInfrastructure != null ? 
+        this.shiftChargingLogic = chargingStrategyFactory != null && chargingInfrastructure != null ?
                 new ShiftChargingLogic(shiftsParams, chargingInfrastructure, chargingStrategyFactory) : null;
     }
 
@@ -176,12 +176,12 @@ public class ShiftTaskSchedulerImpl implements ShiftTaskScheduler {
                         ShiftBreakTask breakTask = taskFactory.createShiftBreakTask(vehicle, initialStayEndTime,
                                 breakEndTime, waitForShiftTask.getLink(), shiftBreak.get(),
                                 operationFacility.getId(), reservation.get().reservationId());
-                        
+
                         // Add charging if appropriate (for electric vehicles)
                         if (shiftChargingLogic != null && vehicle instanceof EvDvrpVehicle) {
                             addChargingToBreakIfNeeded((EvDvrpVehicle) vehicle, breakTask, operationFacility);
                         }
-                        
+
                         schedule.addTask(breakTask);
                     } else {
                         throw new RuntimeException("Could not schedule shift break for " + shift + " at facility " + operationFacility);
@@ -231,7 +231,7 @@ public class ShiftTaskSchedulerImpl implements ShiftTaskScheduler {
 
         // Check if charging should be added
         boolean shouldCharge = shouldAddChargingToBreak(vehicle, breakTask, facility);
-        
+
         if (shouldCharge) {
             // Find available charger with strategy
             Optional<ShiftChargingLogic.ChargerWithStrategy> chargerWithStrategy =
@@ -268,7 +268,7 @@ public class ShiftTaskSchedulerImpl implements ShiftTaskScheduler {
             }
         }
     }
-    
+
     /**
      * Determines if charging should be added to a break task
      */
@@ -276,13 +276,13 @@ public class ShiftTaskSchedulerImpl implements ShiftTaskScheduler {
         if (shiftChargingLogic == null) {
             return false;
         }
-        
+
         // Get current SOC
         ElectricVehicle ev = vehicle.getElectricVehicle();
         double soc = ev.getBattery().getCharge() / ev.getBattery().getCapacity();
-        
+
         // Check if SOC is below threshold and facility has chargers
-        return soc <= shiftsParams.getChargeDuringBreakThreshold() && 
+        return soc <= shiftsParams.getChargeDuringBreakThreshold() &&
                 facility.getChargers() != null && !facility.getChargers().isEmpty();
     }
 
@@ -315,11 +315,11 @@ public class ShiftTaskSchedulerImpl implements ShiftTaskScheduler {
         ShiftChangeOverTask changeTask = taskFactory.createShiftChangeoverTask(vehicle, Math.max(shift.getEndTime(),
                 vrpPath.getArrivalTime()), endTime, vrpPath.getToLink(), shift, reservation.resource().getId(), reservation.reservationId());
         schedule.addTask(changeTask);
-        
+
         // Create the wait task
         WaitForShiftTask waitTask = taskFactory.createWaitForShiftStayTask(vehicle, endTime, vehicle.getServiceEndTime(),
                 vrpPath.getToLink(), reservation.resource().getId(), reservation.reservationId());
-        
+
         schedule.addTask(waitTask);
     }
 
@@ -422,12 +422,12 @@ public class ShiftTaskSchedulerImpl implements ShiftTaskScheduler {
 
         // Update due to facility change
         boolean facilityChanged = !newFacility.getId().equals(existingFacilityId);
-        
+
         // Update due to charging need (for electric vehicles)
         boolean chargingNeeded = false;
         if (!facilityChanged && shiftChargingLogic != null && context.vehicle() instanceof EvDvrpVehicle) {
             EvDvrpVehicle evVehicle = (EvDvrpVehicle) context.vehicle();
-            chargingNeeded = shouldAddChargingToBreak(evVehicle, context.shiftBreakTask(), newFacility) && 
+            chargingNeeded = shouldAddChargingToBreak(evVehicle, context.shiftBreakTask(), newFacility) &&
                     !context.shiftBreakTask().getChargingTask().isPresent();
         }
 
@@ -440,7 +440,7 @@ public class ShiftTaskSchedulerImpl implements ShiftTaskScheduler {
             return false;
         }
     }
-    
+
     /**
      * Tries to add charging to an existing break task
      */
@@ -448,23 +448,23 @@ public class ShiftTaskSchedulerImpl implements ShiftTaskScheduler {
         if (shiftChargingLogic == null) {
             return false;
         }
-        
+
         OperationFacility facility = facilities.getFacilities().get(context.shiftBreakTask().getFacilityId());
         ElectricVehicle ev = vehicle.getElectricVehicle();
-        
+
         // Find available charger with strategy
         Optional<ShiftChargingLogic.ChargerWithStrategy> chargerWithStrategy =
                 shiftChargingLogic.findAvailableCharger(facility, ev);
-        
+
         if (chargerWithStrategy.isPresent()) {
             Charger charger = chargerWithStrategy.get().charger();
             ChargingStrategy strategy = chargerWithStrategy.get().strategy();
-            
+
             // Calculate energy to charge during break
             double breakDuration = context.shiftBreakTask().getEndTime() - context.shiftBreakTask().getBeginTime();
             double energyCharge = ((BatteryCharging) ev.getChargingPower())
                     .calcEnergyCharged(charger.getSpecification(), breakDuration);
-            
+
             // Create charging task
             ChargingTaskImpl chargingTask = new ChargingTaskImpl(
                     EDrtChargingTask.TYPE,
@@ -474,14 +474,14 @@ public class ShiftTaskSchedulerImpl implements ShiftTaskScheduler {
                     vehicle.getElectricVehicle(),
                     -energyCharge, // Negative value means charging
                     strategy);
-            
+
             // Assign vehicle to charger
             ((ChargingWithAssignmentLogic) charger.getLogic()).assignVehicle(ev, strategy);
-            
+
             // Add charging to the break task
             return context.shiftBreakTask().addCharging(chargingTask);
         }
-        
+
         return false;
     }
 
@@ -941,13 +941,13 @@ public class ShiftTaskSchedulerImpl implements ShiftTaskScheduler {
             stayTask.setEndTime(vehicle.getServiceEndTime());
         }
     }
-    
+
     /**
      * Updates a waiting vehicle with charging capability.
      * This can be called periodically to evaluate if waiting vehicles should start charging.
      * This method handles all charging logic including threshold checks, charger selection,
      * and validation that charging can be completed within the available time.
-     * 
+     *
      * @param vehicle The shift vehicle
      * @param now Current simulation time
      * @return true if charging was added, false otherwise
@@ -958,42 +958,42 @@ public class ShiftTaskSchedulerImpl implements ShiftTaskScheduler {
         if (!(vehicle instanceof EvDvrpVehicle) || shiftChargingLogic == null || chargingInfrastructure == null) {
             return false;
         }
-        
+
         // Check schedule status
         Schedule schedule = vehicle.getSchedule();
         if (schedule.getStatus() != Schedule.ScheduleStatus.STARTED) {
             return false;
         }
-        
+
         // Check if current task is a wait task
         Task currentTask = schedule.getCurrentTask();
-        if (!(currentTask instanceof WaitForShiftTask waitTask) || 
+        if (!(currentTask instanceof WaitForShiftTask waitTask) ||
             currentTask.getStatus() != Task.TaskStatus.STARTED) {
             return false;
         }
-        
+
         // If task already has charging, nothing to do
         if (waitTask.getChargingTask().isPresent()) {
             return false;
         }
-        
+
         // Get vehicle SOC
         EvDvrpVehicle evVehicle = (EvDvrpVehicle) vehicle;
         ElectricVehicle ev = evVehicle.getElectricVehicle();
         double soc = ev.getBattery().getCharge() / ev.getBattery().getCapacity();
-        
+
         // Only charge if SOC is below threshold
         // Use the chargeAtHubThreshold since this is for vehicles waiting at hub
         if (soc > shiftsParams.getChargeAtHubThreshold()) {
             return false;
         }
-        
+
         // Get facility and check for available charger
         OperationFacility facility = facilities.getFacilities().get(waitTask.getFacilityId());
         if (facility == null || facility.getChargers().isEmpty()) {
             return false; // Facility doesn't exist or has no chargers
         }
-        
+
         // Find the best charger with minimum wait time
         String chargerType = shiftsParams.getOutOfShiftChargerType();
         Optional<Charger> selectedCharger = facility.getChargers().stream()
@@ -1004,45 +1004,45 @@ public class ShiftTaskSchedulerImpl implements ShiftTaskScheduler {
                     double waitTime2 = ChargingEstimations.estimateMaxWaitTimeForNextVehicle(c2);
                     return Double.compare(waitTime1, waitTime2);
                 });
-        
+
         if (selectedCharger.isEmpty()) {
             return false; // No suitable charger available
         }
-        
+
         Charger charger = selectedCharger.get();
         Optional<ShiftChargingLogic.ChargerWithStrategy> chargerWithStrategy =
                 shiftChargingLogic.findAvailableCharger(facility, ev);
-                
+
         if (chargerWithStrategy.isEmpty()) {
             return false; // No charger with strategy available
         }
-        
+
         ChargingStrategy strategy = chargerWithStrategy.get().strategy();
         if (strategy.isChargingCompleted()) {
             return false; // Vehicle already fully charged
         }
-        
+
         // Calculate time requirements
         double waitTime = ChargingEstimations.estimateMaxWaitTimeForNextVehicle(charger);
         double chargingTime = strategy.calcRemainingTimeToCharge();
         double endTime = now + waitTime + chargingTime;
-        
+
         // Ensure charging can be completed within the task's time window
         if (endTime >= currentTask.getEndTime()) {
             return false; // Not enough time to complete charging
         }
-        
+
         // Calculate energy to be charged
         double energy = -strategy.calcRemainingEnergyToCharge();
-        
+
         // Use chargeAtHub method to add charging to the vehicle
         return chargeAtHub(waitTask, vehicle, ev, charger, now, energy, strategy);
     }
-    
+
     /**
      * Adds charging capability to a waiting vehicle at a hub facility.
      * This method adds charging to the existing task instead of replacing it.
-     * 
+     *
      * @param currentTask The current wait task
      * @param vehicle The vehicle
      * @param electricVehicle The electric vehicle
@@ -1058,10 +1058,10 @@ public class ShiftTaskSchedulerImpl implements ShiftTaskScheduler {
         if (currentTask.getChargingTask().isPresent()) {
             return false;
         }
-        
+
         // Assign vehicle to charger
         ((ChargingWithAssignmentLogic) charger.getLogic()).assignVehicle(electricVehicle, strategy);
-        
+
         // Create charging task
         ChargingTaskImpl chargingTask = new ChargingTaskImpl(
                 EDrtChargingTask.TYPE,
@@ -1071,7 +1071,7 @@ public class ShiftTaskSchedulerImpl implements ShiftTaskScheduler {
                 electricVehicle,
                 energy,
                 strategy);
-        
+
         // Add charging to the existing wait task
         boolean addedCharging = currentTask.addCharging(chargingTask);
         if (!addedCharging) {
@@ -1084,7 +1084,7 @@ public class ShiftTaskSchedulerImpl implements ShiftTaskScheduler {
             }
             return false;
         }
-        
+
         return true;
     }
 }

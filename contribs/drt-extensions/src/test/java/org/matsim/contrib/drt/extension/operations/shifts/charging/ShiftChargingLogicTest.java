@@ -33,7 +33,7 @@ public class ShiftChargingLogicTest {
     @Mock private Charger charger1;
     @Mock private Charger charger2;
     @Mock private ChargingStrategy chargingStrategy;
-    
+
     private ShiftChargingLogic chargingLogic;
     private final String CHARGER_TYPE = "fast_charger";
 
@@ -45,9 +45,9 @@ public class ShiftChargingLogicTest {
     @Test
     public void testFindAvailableCharger_noChargersAtFacility() {
         when(facility.getChargers()).thenReturn(List.of());
-        
+
         Optional<ShiftChargingLogic.ChargerWithStrategy> result = chargingLogic.findAvailableCharger(facility, ev);
-        
+
         assertTrue(result.isEmpty());
     }
 
@@ -56,9 +56,9 @@ public class ShiftChargingLogicTest {
         // Create a new charging logic with null infrastructure
         chargingLogic = new ShiftChargingLogic(shiftsParams, null, chargingStrategyFactory);
         when(facility.getChargers()).thenReturn(List.of(Id.create("charger1", Charger.class)));
-        
+
         Optional<ShiftChargingLogic.ChargerWithStrategy> result = chargingLogic.findAvailableCharger(facility, ev);
-        
+
         assertTrue(result.isEmpty());
     }
 
@@ -72,7 +72,7 @@ public class ShiftChargingLogicTest {
 
 
         Optional<ShiftChargingLogic.ChargerWithStrategy> result = chargingLogic.findAvailableCharger(facility, ev);
-        
+
         assertTrue(result.isEmpty());
     }
 
@@ -89,9 +89,9 @@ public class ShiftChargingLogicTest {
             // Simulate wait time
             mockedEstimations.when(() -> ChargingEstimations.estimateMaxWaitTimeForNextVehicle(charger1))
                     .thenReturn(300.0); // 5 minutes wait time
-            
+
             Optional<ShiftChargingLogic.ChargerWithStrategy> result = chargingLogic.findAvailableCharger(facility, ev);
-            
+
             assertTrue(result.isEmpty());
         }
     }
@@ -108,12 +108,12 @@ public class ShiftChargingLogicTest {
         try (MockedStatic<ChargingEstimations> mockedEstimations = mockStatic(ChargingEstimations.class)) {
             mockedEstimations.when(() -> ChargingEstimations.estimateMaxWaitTimeForNextVehicle(charger1))
                     .thenReturn(0.0); // No wait time
-                    
+
             when(chargingStrategyFactory.createStrategy(any(), eq(ev))).thenReturn(chargingStrategy);
             when(chargingStrategy.isChargingCompleted()).thenReturn(true); // Vehicle is fully charged
-            
+
             Optional<ShiftChargingLogic.ChargerWithStrategy> result = chargingLogic.findAvailableCharger(facility, ev);
-            
+
             assertTrue(result.isEmpty());
         }
     }
@@ -130,12 +130,12 @@ public class ShiftChargingLogicTest {
         try (MockedStatic<ChargingEstimations> mockedEstimations = mockStatic(ChargingEstimations.class)) {
             mockedEstimations.when(() -> ChargingEstimations.estimateMaxWaitTimeForNextVehicle(charger1))
                     .thenReturn(0.0); // No wait time
-                    
+
             when(chargingStrategyFactory.createStrategy(any(), eq(ev))).thenReturn(chargingStrategy);
             when(chargingStrategy.isChargingCompleted()).thenReturn(false); // Vehicle needs charging
-            
+
             Optional<ShiftChargingLogic.ChargerWithStrategy> result = chargingLogic.findAvailableCharger(facility, ev);
-            
+
             assertTrue(result.isPresent());
             assertEquals(charger1, result.get().charger());
             assertEquals(chargingStrategy, result.get().strategy());
@@ -162,12 +162,12 @@ public class ShiftChargingLogicTest {
                     .thenReturn(300.0); // 5 minutes wait time
             mockedEstimations.when(() -> ChargingEstimations.estimateMaxWaitTimeForNextVehicle(charger2))
                     .thenReturn(0.0); // No wait time
-                    
+
             when(chargingStrategyFactory.createStrategy(any(), eq(ev))).thenReturn(chargingStrategy);
             when(chargingStrategy.isChargingCompleted()).thenReturn(false); // Vehicle needs charging
-            
+
             Optional<ShiftChargingLogic.ChargerWithStrategy> result = chargingLogic.findAvailableCharger(facility, ev);
-            
+
             assertTrue(result.isPresent());
             assertEquals(charger2, result.get().charger()); // Should select the second charger
             assertEquals(chargingStrategy, result.get().strategy());

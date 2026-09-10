@@ -35,7 +35,7 @@ public class ShiftBreakTaskImpl extends DefaultStayTask implements ShiftBreakTas
 	private final Id<ReservationManager.Reservation> reservationId;
 
 	private final DrtStopTask delegate;
-	
+
 	// Optional charging fields - null for non-electric vehicles
 	private ChargingTask chargingTask;
 	private double consumedEnergy = 0;
@@ -113,12 +113,12 @@ public class ShiftBreakTaskImpl extends DefaultStayTask implements ShiftBreakTas
 	public Optional<Id<ReservationManager.Reservation>> getReservationId() {
 		return Optional.ofNullable(reservationId);
 	}
-	
+
 	@Override
 	public Optional<ChargingTask> getChargingTask() {
 		return Optional.ofNullable(chargingTask);
 	}
-	
+
 	@Override
 	public boolean addCharging(ChargingTask chargingTask) {
 	    // Only allow adding charging if task is planned and no charging exists
@@ -129,10 +129,10 @@ public class ShiftBreakTaskImpl extends DefaultStayTask implements ShiftBreakTas
 	    }
 	    return false;
 	}
-	
+
 	/**
 	 * Removes charging capability from this task if it's still in the planned state.
-	 * 
+	 *
 	 * @return true if charging was removed successfully, false otherwise
 	 */
 	public boolean removeCharging() {
@@ -143,7 +143,7 @@ public class ShiftBreakTaskImpl extends DefaultStayTask implements ShiftBreakTas
 	    }
 	    return false;
 	}
-	
+
 	@Override
 	public double getTotalEnergy() {
 	    return consumedEnergy;

@@ -78,4 +78,3 @@ public class DrtServiceTask extends DefaultStayTask implements OperationalStop {
 		return false;
 	}
 }
-

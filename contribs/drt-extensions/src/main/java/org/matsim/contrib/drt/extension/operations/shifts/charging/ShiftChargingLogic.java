@@ -14,15 +14,15 @@ import java.util.Optional;
 
 /**
  * Central utility for making charging decisions for shift operations.
- * 
+ *
  * @author nkuehnel / MOIA
  */
 public class ShiftChargingLogic {
-    
+
     private final ShiftsParams shiftsParams;
     private final ChargingInfrastructure chargingInfrastructure;
     private final ChargingStrategy.Factory chargingStrategyFactory;
-    
+
     public ShiftChargingLogic(
             ShiftsParams shiftsParams,
             ChargingInfrastructure chargingInfrastructure,
@@ -31,16 +31,16 @@ public class ShiftChargingLogic {
         this.chargingInfrastructure = chargingInfrastructure;
         this.chargingStrategyFactory = chargingStrategyFactory;
     }
-    
+
     /**
      * Record to hold charger and strategy information
      */
     public record ChargerWithStrategy(Charger charger, ChargingStrategy strategy) {}
-    
+
     /**
      * Finds an available charger at the given facility with no wait time
      * and creates a strategy for it.
-     * 
+     *
      * @param facility The operation facility
      * @param ev The electric vehicle
      * @return Optional containing the charger and strategy if found, empty otherwise
@@ -51,27 +51,27 @@ public class ShiftChargingLogic {
         if (chargerIds.isEmpty() || chargingInfrastructure == null) {
             return Optional.empty();
         }
-        
+
         // Find a charger with no wait time
         Optional<Charger> selectedCharger = chargerIds.stream()
                 .map(id -> chargingInfrastructure.getChargers().get(id))
-                .filter(charger -> charger != null && 
+                .filter(charger -> charger != null &&
                         shiftsParams.getBreakChargerType().equals(charger.getChargerType()))
                 .filter(charger -> ChargingEstimations.estimateMaxWaitTimeForNextVehicle(charger) == 0)
                 .findFirst();
-        
+
         if (selectedCharger.isPresent()) {
             Charger charger = selectedCharger.get();
             ChargingStrategy strategy = chargingStrategyFactory.createStrategy(charger.getSpecification(), ev);
-            
+
             // Don't bother charging if already fully charged according to strategy
             if (strategy.isChargingCompleted()) {
                 return Optional.empty();
             }
-            
+
             return Optional.of(new ChargerWithStrategy(charger, strategy));
         }
-        
+
         return Optional.empty();
     }
 }

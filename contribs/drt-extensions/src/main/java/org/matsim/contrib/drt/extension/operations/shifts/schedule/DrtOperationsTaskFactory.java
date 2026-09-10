@@ -20,7 +20,7 @@ import java.util.function.Supplier;
 
 /**
  * Task factory that creates operations-related tasks (shifts, breaks, etc.) using unified task implementations
- * that support both standard and electric vehicles. This implementation creates tasks without 
+ * that support both standard and electric vehicles. This implementation creates tasks without
  * charging capabilities initially, which can be added later by a scheduler or other components.
  *
  * @author nkuehnel / MOIA

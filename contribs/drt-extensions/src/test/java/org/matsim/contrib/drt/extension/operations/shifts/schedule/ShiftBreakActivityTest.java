@@ -31,7 +31,7 @@ public class ShiftBreakActivityTest {
     @Mock private ChargingTask chargingTask;
     @Mock private ChargingWithAssignmentLogic chargingLogic;
     @Mock private ElectricVehicle electricVehicle;
-    
+
     private ShiftBreakActivity activity;
     private final double endTime = 3600.0; // 1 hour
 
@@ -53,7 +53,7 @@ public class ShiftBreakActivityTest {
     public void testDoSimStep_noCharging() {
         double now = 1800.0;
         activity.doSimStep(now);
-        
+
         // Only the bus stop delegate should be called, no charging interactions
         verify(shiftBreakTask, times(2)).getChargingTask();
     }
@@ -66,11 +66,11 @@ public class ShiftBreakActivityTest {
         Map<Id<Request>, AcceptedDrtRequest> emptyRequests = new HashMap<>();
         ShiftBreakActivity activityWithCharging = new ShiftBreakActivity(
                 passengerHandler, driver, shiftBreakTask, emptyRequests, emptyRequests);
-        
+
         // Charging should be initialized
         double now = 1800.0;
         activityWithCharging.doSimStep(now);
-        
+
         // Verify doSimStep was called, meaning charging was initialized
         verify(shiftBreakTask, times(2)).getChargingTask();
     }
@@ -82,16 +82,16 @@ public class ShiftBreakActivityTest {
                 .thenReturn(Optional.empty())
                 .thenReturn(Optional.of(chargingTask));
         when(chargingTask.getChargingLogic()).thenReturn(chargingLogic);
-        
+
         double now = 1800.0;
         activity.doSimStep(now);
-        
+
         // First call should check for charging task
         verify(shiftBreakTask, times(2)).getChargingTask();
-        
+
         // Second sim step, now with charging
         activity.doSimStep(now);
-        
+
         // Should have checked for charging task again
         verify(shiftBreakTask, times(3)).getChargingTask();
     }
@@ -101,14 +101,14 @@ public class ShiftBreakActivityTest {
         when(shiftBreakTask.getChargingTask()).thenReturn(Optional.of(chargingTask));
         when(chargingTask.getChargingLogic()).thenReturn(chargingLogic);
         when(chargingTask.getElectricVehicle()).thenReturn(electricVehicle);
-        
+
         Map<Id<Request>, AcceptedDrtRequest> emptyRequests = new HashMap<>();
         ShiftBreakActivity activityWithCharging = new ShiftBreakActivity(
                 passengerHandler, driver, shiftBreakTask, emptyRequests, emptyRequests);
-        
+
         double now = endTime - 300; // 5 minutes before end
         activityWithCharging.finalizeAction(now);
-        
+
         // Should remove the vehicle from charging
         verify(chargingLogic).removeVehicle(electricVehicle, now);
     }
@@ -120,10 +120,10 @@ public class ShiftBreakActivityTest {
         Map<Id<Request>, AcceptedDrtRequest> emptyRequests = new HashMap<>();
         ShiftBreakActivity activityWithCharging = new ShiftBreakActivity(
                 passengerHandler, driver, shiftBreakTask, emptyRequests, emptyRequests);
-        
+
         double now = endTime; // At end time
         activityWithCharging.finalizeAction(now);
-        
+
         // Should not interact with charging logic
         verify(chargingTask, never()).getChargingLogic();
     }

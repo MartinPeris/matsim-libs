@@ -94,7 +94,7 @@ public class DrtWithExtensionsConfigGroup extends DrtConfigGroup {
 			params -> rideTimeSkimParams = (DrtRideTimeSkimParams) params);
 
 		// Optional
-		addDefinition(PreemptiveRejectionParams.SET_NAME, PreemptiveRejectionParams::new, 
+		addDefinition(PreemptiveRejectionParams.SET_NAME, PreemptiveRejectionParams::new,
 			() -> preemptiveRejectionParams, params -> preemptiveRejectionParams = (PreemptiveRejectionParams) params);
 	}
 

@@ -49,7 +49,7 @@ public record BenchmarkResult(
 		double inVehicleTravelTimeMean,
 		double totalTravelTimeMean
 	) {
-		public static DrtQualityStats EMPTY = new DrtQualityStats(Double.NaN, 0, 0, Double.NaN, Double.NaN, Double.NaN, Double.NaN);
+		public static final DrtQualityStats EMPTY = new DrtQualityStats(Double.NaN, 0, 0, Double.NaN, Double.NaN, Double.NaN, Double.NaN);
 
 		public static DrtQualityStats fromOutputDirectory(String outputDir, String mode) {
 			Path statsPath = Path.of(outputDir, "drt_customer_stats_" + mode + ".csv");

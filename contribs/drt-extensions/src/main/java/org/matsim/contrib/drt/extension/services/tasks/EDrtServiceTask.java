@@ -42,4 +42,3 @@ public class EDrtServiceTask extends DrtServiceTask implements ETask {
 		return consumedEnergy;
 	}
 }
-

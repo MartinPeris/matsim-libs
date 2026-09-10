@@ -32,5 +32,3 @@ public class DrtShiftsSpecificationImpl implements DrtShiftsSpecification {
 		container.removeSpecification(shiftId);
 	}
 }
-
-

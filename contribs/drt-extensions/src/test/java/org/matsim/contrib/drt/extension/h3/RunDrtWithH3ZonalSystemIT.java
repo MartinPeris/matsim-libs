@@ -92,4 +92,3 @@ public class RunDrtWithH3ZonalSystemIT {
 
 	}
 }
-

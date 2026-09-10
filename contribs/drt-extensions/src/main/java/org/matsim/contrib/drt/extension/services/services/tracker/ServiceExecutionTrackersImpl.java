@@ -118,6 +118,3 @@ public class ServiceExecutionTrackersImpl implements ServiceExecutionTrackers {
 		delegates.get(event.getVehicleId()).handleEvent(event);
 	}
 }
-
-
-

@@ -10,22 +10,22 @@ import org.matsim.contrib.evrp.ChargingTask;
 /**
  * A dynamic version of ChargingWaitForShiftActivity that can detect when charging
  * is added to the underlying task during simulation.
- * 
+ *
  * @author nkuehnel / MOIA
  */
 public class WaitForShiftActivity implements DynActivity {
     public static final String ACTIVITY_TYPE = "Wait for shift";
-    
+
     private final IdleDynActivity idleDynActivity;
     private final WaitForShiftTask waitTask;
-    
+
     private ChargingActivity chargingDelegate;
     private ChargingTask chargingTask;
 
     public WaitForShiftActivity(WaitForShiftTask waitTask) {
         this.waitTask = waitTask;
         this.idleDynActivity = new IdleDynActivity(ACTIVITY_TYPE, waitTask::getEndTime);
-        
+
         // Initialize with existing charging if any
         waitTask.getChargingTask().ifPresent(this::initializeCharging);
     }
@@ -46,10 +46,10 @@ public class WaitForShiftActivity implements DynActivity {
         if (chargingDelegate == null) {
             waitTask.getChargingTask().ifPresent(this::initializeCharging);
         }
-        
+
         // Always execute idle activity
         idleDynActivity.doSimStep(now);
-        
+
         // Execute charging if present
         if (chargingDelegate != null) {
             chargingDelegate.doSimStep(now);
@@ -63,7 +63,7 @@ public class WaitForShiftActivity implements DynActivity {
             logic.removeVehicle(ev, now);
         }
     }
-    
+
     private void initializeCharging(ChargingTask task) {
         this.chargingTask = task;
         this.chargingDelegate = new ChargingActivity(task);

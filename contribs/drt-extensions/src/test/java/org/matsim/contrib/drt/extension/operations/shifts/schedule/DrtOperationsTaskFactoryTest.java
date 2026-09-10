@@ -46,7 +46,7 @@ public class DrtOperationsTaskFactoryTest {
     @Mock private DrtStayTask drtStayTask;
     @Mock private DrtStopTask drtStopTask;
     @Mock private OperationFacility facility;
-    
+
     private DrtOperationsTaskFactory taskFactory;
     private final double beginTime = 3600.0;
     private final double endTime = 7200.0;
@@ -59,9 +59,9 @@ public class DrtOperationsTaskFactoryTest {
     @Test
     public void testCreateDriveTask() {
         when(drtTaskFactory.createDriveTask(vehicle, path, taskType)).thenReturn(drtDriveTask);
-        
+
         DrtDriveTask result = taskFactory.createDriveTask(vehicle, path, taskType);
-        
+
         assertSame(drtDriveTask, result);
         verify(drtTaskFactory).createDriveTask(vehicle, path, taskType);
     }
@@ -69,9 +69,9 @@ public class DrtOperationsTaskFactoryTest {
     @Test
     public void testCreateStayTask() {
         when(drtTaskFactory.createStayTask(vehicle, beginTime, endTime, link)).thenReturn(drtStayTask);
-        
+
         DrtStayTask result = taskFactory.createStayTask(vehicle, beginTime, endTime, link);
-        
+
         assertSame(drtStayTask, result);
         verify(drtTaskFactory).createStayTask(vehicle, beginTime, endTime, link);
     }
@@ -79,9 +79,9 @@ public class DrtOperationsTaskFactoryTest {
     @Test
     public void testCreateStopTask() {
         when(drtTaskFactory.createStopTask(vehicle, beginTime, endTime, link)).thenReturn(drtStopTask);
-        
+
         DrtStopTask result = taskFactory.createStopTask(vehicle, beginTime, endTime, link);
-        
+
         assertSame(drtStopTask, result);
         verify(drtTaskFactory).createStopTask(vehicle, beginTime, endTime, link);
     }
@@ -90,17 +90,17 @@ public class DrtOperationsTaskFactoryTest {
     public void testCreateShiftBreakTask() {
         Id<OperationFacility> facilityId = Id.create("facility1", OperationFacility.class);
         Id<ReservationManager.Reservation> reservationId = Id.create("reservation1", ReservationManager.Reservation.class);
-        
+
         ShiftBreakTask result = taskFactory.createShiftBreakTask(
                 vehicle, beginTime, endTime, link, shiftBreak, facilityId, reservationId);
-        
+
         assertNotNull(result);
         assertEquals(beginTime, result.getBeginTime());
         assertEquals(endTime, result.getEndTime());
         assertEquals(facilityId, result.getFacilityId());
         assertEquals(reservationId, result.getReservationId().get());
         assertEquals(shiftBreak, result.getShiftBreak());
-        
+
         // Should NOT have charging initially
         assertTrue(result.getChargingTask().isEmpty());
     }
@@ -109,10 +109,10 @@ public class DrtOperationsTaskFactoryTest {
     public void testCreateShiftChangeoverTask() {
         Id<OperationFacility> facilityId = Id.create("facility1", OperationFacility.class);
         Id<ReservationManager.Reservation> reservationId = Id.create("reservation1", ReservationManager.Reservation.class);
-        
+
         ShiftChangeOverTask result = taskFactory.createShiftChangeoverTask(
                 vehicle, beginTime, endTime, link, shift, facilityId, reservationId);
-        
+
         assertNotNull(result);
         assertEquals(beginTime, result.getBeginTime());
         assertEquals(endTime, result.getEndTime());
@@ -125,10 +125,10 @@ public class DrtOperationsTaskFactoryTest {
     public void testCreateWaitForShiftStayTask() {
         Id<OperationFacility> facilityId = Id.create("facility1", OperationFacility.class);
         Id<ReservationManager.Reservation> reservationId = Id.create("reservation1", ReservationManager.Reservation.class);
-        
+
         WaitForShiftTask result = taskFactory.createWaitForShiftStayTask(
                 vehicle, beginTime, endTime, link, facilityId, reservationId);
-        
+
         assertNotNull(result);
         assertEquals(beginTime, result.getBeginTime());
         assertEquals(endTime, result.getEndTime());
@@ -145,7 +145,7 @@ public class DrtOperationsTaskFactoryTest {
         when(vehicle.getId()).thenReturn(Id.create("vehicle1", DvrpVehicle.class));
         Id<Link> linkId = Id.create("link1", Link.class);
         when(startLink.getId()).thenReturn(linkId);
-        
+
         // Mock facility lookup
         Id<OperationFacility> facilityId = Id.create("facility1", OperationFacility.class);
         when(facility.getId()).thenReturn(facilityId);
@@ -155,14 +155,14 @@ public class DrtOperationsTaskFactoryTest {
 
         // Mock reservation
         Id<ReservationManager.Reservation> reservationId = Id.create("reservation1", ReservationManager.Reservation.class);
-        ReservationManager.ReservationInfo<OperationFacility, DvrpVehicle> reservationInfo = 
+        ReservationManager.ReservationInfo<OperationFacility, DvrpVehicle> reservationInfo =
                 mock(ReservationManager.ReservationInfo.class);
         when(reservationInfo.reservationId()).thenReturn(reservationId);
         when(reservationManager.addReservation(facility, vehicle, beginTime, endTime))
                 .thenReturn(Optional.of(reservationInfo));
-        
+
         DefaultStayTask result = taskFactory.createInitialTask(vehicle, beginTime, endTime, link);
-        
+
         assertNotNull(result);
         assertTrue(result instanceof WaitForShiftTask);
         verify(facility).register(vehicle.getId());

@@ -65,7 +65,7 @@ public class OperationFacilitiesReader extends MatsimXmlParser {
 			case CHARGERS:
 				break;
 			case CHARGER:
-				Id<Charger> chargerId = Id.create(atts.getValue(CHARGER_ID), Charger.class);;
+				Id<Charger> chargerId = Id.create(atts.getValue(CHARGER_ID), Charger.class);
 				currentBuilder.addChargerId(chargerId);
             case ROOT:
                 break;

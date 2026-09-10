@@ -47,7 +47,7 @@ public class ShiftChangeoverTaskImpl extends DefaultStayTask implements ShiftCha
 								   Id<OperationFacility> facilityId, Id<ReservationManager.Reservation> reservationId) {
 		this(beginTime, endTime, link, shift, facilityId, reservationId, null, 0);
 	}
-	
+
 	/**
 	 * Constructor for creating a shift changeover task with electric capabilities.
 	 */
@@ -128,12 +128,12 @@ public class ShiftChangeoverTaskImpl extends DefaultStayTask implements ShiftCha
 	public Optional<Id<ReservationManager.Reservation>> getReservationId() {
 		return Optional.ofNullable(reservationId);
 	}
-	
+
 	@Override
 	public Optional<ChargingTask> getChargingTask() {
 		return Optional.ofNullable(chargingTask);
 	}
-	
+
 	@Override
 	public boolean addCharging(ChargingTask chargingTask) {
 		// Only allow adding charging if task is planned and no charging exists
@@ -144,10 +144,10 @@ public class ShiftChangeoverTaskImpl extends DefaultStayTask implements ShiftCha
 		}
 		return false;
 	}
-	
+
 	/**
 	 * Removes charging capability from this task if it's still in the planned state.
-	 * 
+	 *
 	 * @return true if charging was removed successfully, false otherwise
 	 */
 	public boolean removeCharging() {
@@ -158,10 +158,9 @@ public class ShiftChangeoverTaskImpl extends DefaultStayTask implements ShiftCha
 		}
 		return false;
 	}
-	
+
 	@Override
 	public double getTotalEnergy() {
 		return consumedEnergy;
 	}
 }
-

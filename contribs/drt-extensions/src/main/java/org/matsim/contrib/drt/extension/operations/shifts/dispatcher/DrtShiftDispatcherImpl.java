@@ -580,4 +580,3 @@ public class DrtShiftDispatcherImpl implements DrtShiftDispatcher {
         }
     }
 }
-

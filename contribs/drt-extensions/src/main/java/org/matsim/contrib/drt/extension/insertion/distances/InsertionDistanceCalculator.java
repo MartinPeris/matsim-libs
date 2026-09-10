@@ -31,7 +31,7 @@ public class InsertionDistanceCalculator {
 	public InsertionDistanceCalculator(DvrpLoadType loadType) {
 		Preconditions.checkArgument(loadType instanceof IntegerLoadType, "Distance calculation currently only works with IntegerLoadType");
 		this.emptyLoad = (IntegerLoad) loadType.getEmptyLoad();
-	}	
+	}
 
 	public VehicleDistance calculateScheduledDistance(VehicleEntry vehicleEntry) {
 		Schedule schedule = vehicleEntry.vehicle.getSchedule();

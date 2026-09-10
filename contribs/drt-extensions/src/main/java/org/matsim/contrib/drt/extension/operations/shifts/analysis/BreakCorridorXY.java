@@ -105,4 +105,3 @@ public class BreakCorridorXY implements DrtShiftBreakStartedEventHandler, DrtShi
         return shift2plannedVsActualBreakEnd;
     }
 }
-

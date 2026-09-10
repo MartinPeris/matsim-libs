@@ -49,4 +49,3 @@ public class DrtShiftBreakEndedEvent extends AbstractShiftEvent {
         return attr;
     }
 }
-

@@ -31,7 +31,7 @@ public class WaitForShiftActivityTest {
     @Mock private ChargingTask chargingTask;
     @Mock private ChargingWithAssignmentLogic chargingLogic;
     @Mock private ElectricVehicle electricVehicle;
-    
+
     private WaitForShiftActivity activity;
     private final double endTime = 3600.0; // 1 hour
 
@@ -52,21 +52,21 @@ public class WaitForShiftActivityTest {
         when(waitTask.getEndTime()).thenReturn(endTime);
         when(chargingTask.getChargingLogic()).thenReturn(chargingLogic);
         when(chargingTask.getElectricVehicle()).thenReturn(electricVehicle);
-        
+
         // Make the task return the charging task during construction
         when(waitTask.getChargingTask()).thenReturn(Optional.of(chargingTask));
-        
+
         // Create activity - charging should be initialized in constructor
         WaitForShiftActivity activityWithCharging = new WaitForShiftActivity(waitTask);
-        
+
         // Execute sim step to trigger charging delegate's sim step
         double now = 1800.0;
         activityWithCharging.doSimStep(now);
-        
+
         // Charging delegate should handle the sim step too - but we can't verify this directly
         // as it's a private field, but we can verify the task was requested
         verify(waitTask, times(2)).getChargingTask(); // Once in constructor, once in doSimStep
-        
+
         // We can also verify that endTime is correctly maintained
         assertEquals(endTime, activityWithCharging.getEndTime(), 0.0);
     }
@@ -77,18 +77,18 @@ public class WaitForShiftActivityTest {
         when(waitTask.getChargingTask())
                 .thenReturn(Optional.empty())
                 .thenReturn(Optional.of(chargingTask));
-        
+
         when(chargingTask.getChargingLogic()).thenReturn(chargingLogic);
-        
+
         double now = 1800.0;
         activity.doSimStep(now);
-        
+
         // First call should check for charging task
         verify(waitTask, times(2)).getChargingTask();
-        
+
         // Second sim step, now with charging
         activity.doSimStep(now);
-        
+
         // Should have checked for charging task again
         verify(waitTask, times(3)).getChargingTask();
     }
@@ -98,12 +98,12 @@ public class WaitForShiftActivityTest {
         when(waitTask.getChargingTask()).thenReturn(Optional.of(chargingTask));
         when(chargingTask.getChargingLogic()).thenReturn(chargingLogic);
         when(chargingTask.getElectricVehicle()).thenReturn(electricVehicle);
-        
+
         WaitForShiftActivity activityWithCharging = new WaitForShiftActivity(waitTask);
-        
+
         double now = endTime - 300; // 5 minutes before end
         activityWithCharging.finalizeAction(now);
-        
+
         // Should remove the vehicle from charging
         verify(chargingLogic).removeVehicle(electricVehicle, now);
     }

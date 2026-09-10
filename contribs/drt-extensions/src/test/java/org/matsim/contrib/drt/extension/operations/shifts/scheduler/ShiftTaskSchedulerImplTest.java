@@ -372,7 +372,7 @@ public class ShiftTaskSchedulerImplTest {
 
 
 
-    
+
     // ---------------- helpers ----------------
 
     private Network createTestNetwork() {

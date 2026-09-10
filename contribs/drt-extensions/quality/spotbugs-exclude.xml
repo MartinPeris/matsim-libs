@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Every entry must name a class and a pattern and say why. A blanket exclusion is a way of not
+  knowing what the tool found.
+-->
+<FindBugsFilter>
+  <!--
+    MS_SHOULD_BE_FINAL is right about the mutability and wrong about the intent.
+    DefaultShiftScheduler.createShiftFromSpec is a public static Function that exists precisely so a
+    scenario can replace how a shift is built from its specification. Making it final would remove
+    the extension point rather than tighten it. Ugly as a design, but changing it is an API decision
+    for that package's owners, not something a lint gate should force.
+  -->
+  <Match>
+    <Class name="org.matsim.contrib.drt.extension.operations.shifts.dispatcher.DefaultShiftScheduler"/>
+    <Bug pattern="MS_SHOULD_BE_FINAL"/>
+  </Match>
+</FindBugsFilter>
