@@ -34,8 +34,8 @@ import java.util.List;
  * <ul>
  * <li>{@value #PER_LINK_FILE}: one row per link with any parking capacity or any spillover &mdash; on-street
  * capacity, peak off-street occupancy (the structured parking the link would have needed), the number of
- * spillover events, whether kerb parking is possible on the link at all, and the peak and event count of the
- * arrivals on links where it is not.</li>
+ * spillover events, whether kerb parking is possible on the link at all, the peak and event count of the
+ * arrivals on links where it is not, and the occupancy of both pools when the file is written.</li>
  * <li>{@value #NETWORK_FILE}: one row per time bin with network-wide on-street capacity, on-street occupancy,
  * off-street occupancy, and the part of that off-street occupancy sitting on links where kerb parking is not
  * possible.</li>
@@ -44,6 +44,11 @@ import java.util.List;
  * kerb is full, which is genuine demand for off-street supply, and a motorway that received an arrival only
  * because an activity coordinate snapped to it, which is an artefact of the scenario. Subtract the non-parkable
  * figures from the off-street ones to get the off-street supply a city would actually need.
+ * <p>
+ * The two {@code end...Occupancy} columns are the state at the end of the mobsim, which is what a district-level
+ * aggregation needs: per-link peaks happen at different moments and cannot be summed, whereas the end state is one
+ * simultaneous snapshot. In a run without replanning that snapshot is also the peak, because agents finish the day
+ * parked and occupancy only rises.
  * The per-link file is filtered to links that matter because writing every link of a city network per iteration
  * is expensive and the zero rows carry no information.
  */
@@ -119,7 +124,8 @@ public class ParkingSpilloverReport implements MobsimBeforeSimStepListener, Befo
 		log.info("Writing per-link parking pools to {}", file);
 		try (BufferedWriter writer = IOUtils.getBufferedWriter(file);
 			 CSVPrinter csv = new CSVPrinter(writer, format("linkId", "onStreetCapacity", "offStreetPeakOccupancy",
-				 "spilloverEvents", "kerbParkingPermitted", "nonParkablePeakOccupancy", "nonParkableArrivals"))) {
+				 "spilloverEvents", "kerbParkingPermitted", "nonParkablePeakOccupancy", "nonParkableArrivals",
+				 "endOnStreetOccupancy", "endOffStreetOccupancy"))) {
 			for (Id<Link> linkId : network.getLinks().keySet()) {
 				int onCap = observer.getOnStreetCapacity(linkId);
 				int offPeak = observer.getOffStreetPeakOccupancy(linkId);
@@ -128,7 +134,8 @@ public class ParkingSpilloverReport implements MobsimBeforeSimStepListener, Befo
 					continue;
 				}
 				csv.printRecord(linkId, onCap, offPeak, spills, observer.isKerbParkingPermitted(linkId),
-					observer.getNonParkablePeakOccupancy(linkId), observer.getNonParkableArrivalEvents(linkId));
+					observer.getNonParkablePeakOccupancy(linkId), observer.getNonParkableArrivalEvents(linkId),
+					observer.getOnStreetOccupancy(linkId), observer.getOffStreetOccupancy(linkId));
 			}
 		} catch (IOException e) {
 			throw new RuntimeException(e);

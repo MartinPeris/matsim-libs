@@ -86,11 +86,11 @@ class ParkingPoolsIntegrationTest {
 
 		String iter = utils.getOutputDirectory() + "ITERS/it.0/0.";
 		List<String> perLink = read(iter + ParkingSpilloverReport.PER_LINK_FILE);
-		assertEquals("linkId;onStreetCapacity;offStreetPeakOccupancy;spilloverEvents;kerbParkingPermitted;nonParkablePeakOccupancy;nonParkableArrivals", perLink.get(0));
+		assertEquals("linkId;onStreetCapacity;offStreetPeakOccupancy;spilloverEvents;kerbParkingPermitted;nonParkablePeakOccupancy;nonParkableArrivals;endOnStreetOccupancy;endOffStreetOccupancy", perLink.get(0));
 		assertTrue(perLink.size() > 1, "every equil link is eligible at one lane and long enough for kerb spaces, so rows are expected");
 		for (String row : perLink.subList(1, perLink.size())) {
 			String[] cols = row.split(";");
-			assertEquals(7, cols.length, row);
+			assertEquals(9, cols.length, row);
 			assertTrue(Integer.parseInt(cols[1]) > 0, "derived kerb capacity should be positive on " + cols[0]);
 			assertEquals("true", cols[4], "every equil link is eligible, so none is a non-parkable link: " + row);
 			assertEquals("0", cols[6], "and none can therefore have a non-parkable arrival: " + row);

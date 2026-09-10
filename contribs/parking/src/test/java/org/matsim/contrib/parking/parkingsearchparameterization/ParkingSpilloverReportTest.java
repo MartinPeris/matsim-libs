@@ -58,8 +58,8 @@ class ParkingSpilloverReportTest {
 		f.report.writePerLink(file);
 
 		List<String> lines = read(file);
-		assertEquals("linkId;onStreetCapacity;offStreetPeakOccupancy;spilloverEvents;kerbParkingPermitted;nonParkablePeakOccupancy;nonParkableArrivals", lines.get(0));
-		assertEquals(List.of("a;1;2;2;true;0;0", "b;1;0;0;true;0;0"), lines.subList(1, lines.size()),
+		assertEquals("linkId;onStreetCapacity;offStreetPeakOccupancy;spilloverEvents;kerbParkingPermitted;nonParkablePeakOccupancy;nonParkableArrivals;endOnStreetOccupancy;endOffStreetOccupancy", lines.get(0));
+		assertEquals(List.of("a;1;2;2;true;0;0;1;2", "b;1;0;0;true;0;0;0;0"), lines.subList(1, lines.size()),
 			"link a: one kerb space, two spilled, peak two; link b: has capacity so it is listed; link c has nothing and is omitted");
 	}
 
@@ -148,7 +148,7 @@ class ParkingSpilloverReportTest {
 
 		String perLink = utils.getOutputDirectory() + "per_link_nonparkable.csv";
 		f.report.writePerLink(perLink);
-		assertEquals(List.of("a;1;1;1;true;0;0", "b;1;0;0;true;0;0", "c;0;1;1;false;1;1"),
+		assertEquals(List.of("a;1;1;1;true;0;0;1;1", "b;1;0;0;true;0;0;0;0", "c;0;1;1;false;1;1;0;1"),
 			read(perLink).subList(1, read(perLink).size()),
 			"link a spilled once as real demand; link c's arrival is counted only in the non-parkable columns");
 
@@ -166,7 +166,7 @@ class ParkingSpilloverReportTest {
 
 		String file = utils.getOutputDirectory() + "per_link_default.csv";
 		f.report.writePerLink(file);
-		assertEquals("c;0;1;1;true;0;0", read(file).get(3),
+		assertEquals("c;0;1;1;true;0;0;0;1", read(file).get(3),
 			"the default rule permits everything, so nothing is ever reported as non-parkable");
 	}
 
