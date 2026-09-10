@@ -1087,7 +1087,12 @@ public class SwissRailRaptorCore {
         return initialStop != null && initialStop.planElements != null;
     }
 
-    static class PathElement {
+    /**
+     * Public only so that {@link RaptorTransferCostCalculator}, whose signature names this type, can be
+     * implemented outside this package. Its fields stay package-private, so an external implementation
+     * can pass a path element along and compare identities but cannot read or alter the search state.
+     */
+    public static class PathElement {
         final PathElement comingFrom;
         final RRouteStop toRouteStop;
         final int firstDepartureTime; // the departure time at the start stop

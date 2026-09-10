@@ -86,6 +86,7 @@
 		<module>minibus</module>
 		<module>multimodal</module>
 		<module>noise</module>
+		<module>observed-skims</module>
 		<module>osm</module>
 		<module>otfvis</module>
 		<module>parking</module>

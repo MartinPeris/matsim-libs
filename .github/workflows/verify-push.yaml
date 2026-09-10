@@ -61,6 +61,7 @@ jobs:
           - contribs/informed-mode-choice
           - contribs/distributed-simulation
           - contribs/otfvis
+          - contribs/observed-skims
           - contribs/osm
           - contribs/application
           - contribs/simwrapper
