@@ -28,6 +28,6 @@ import org.matsim.api.core.v01.population.Person;
 public abstract class AbstractParkingBetas {
 
 	abstract public double getParkingWalkBeta(Person person, double activityDurationInSeconds);
-	abstract public double getParkingCostBeta(Person person); 
+	abstract public double getParkingCostBeta(Person person);
 
 }

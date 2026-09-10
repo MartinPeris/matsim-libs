@@ -33,13 +33,13 @@ public interface PC2Parking {
 	public void parkVehicle();
 
 	public void unparkVehicle();
-	
+
 	public double getCost(Id<Person> agentId, double arrivalTime, double parkingDurationInSecond);
-	
+
 	public Coord getCoordinate();
 
 	public String getGroupName();
-	
+
 	public void resetAvailability();
-	
+
 }

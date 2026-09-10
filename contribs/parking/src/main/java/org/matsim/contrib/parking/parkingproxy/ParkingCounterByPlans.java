@@ -27,27 +27,27 @@ import org.matsim.contrib.parking.parkingproxy.AccessEgressFinder.LegActPair;
 
 /**
  * <b>For some reason not working at the moment</b></br>
- * 
+ *
  * Tracks how many vehicles are in a given area at any time based on the selected Plans of the Persons
  * in the Population.</br>
- * 
+ *
  * The functionality of the {@linkplain PenaltyGenerator} interface are delegated to the {@linkplain MovingEntityCounter}
  * received in the constructor.
- * 
+ *
  * @author tkohl / Senozon
  *
  */
 @Deprecated
 class ParkingCounterByPlans implements IterationStartsListener, PenaltyGenerator {
-	
-	public static final String CARMODE = "car";	
-	
+
+	public static final String CARMODE = "car";
+
 	private final MovingEntityCounter carCounter;
 	private final int carWeight;
 	private final AccessEgressFinder egressFinder = new AccessEgressFinder(CARMODE);
-	
+
 	/**
-	 * 
+	 *
 	 * @param carCounter
 	 * @param carWeight
 	 */
@@ -73,7 +73,7 @@ class ParkingCounterByPlans implements IterationStartsListener, PenaltyGenerator
 	public void notifyIterationStarts(IterationStartsEvent event) {
 		calculateByPopulation(event.getServices().getScenario().getPopulation(), event.getServices().getScenario().getNetwork());
 	}
-	
+
 	/**
 	 * Iterates over all plans and calls the {@linkplain MovingEntityCounter#handleArrival(int, double, double, int)}
 	 * and {@linkplain MovingEntityCounter#handleDeparture(int, double, double, int)} functions whenever an

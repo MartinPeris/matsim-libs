@@ -70,7 +70,6 @@ public class ParkingSearchAndEgressTimeEvaluator implements PersonArrivalEventHa
 	@Override
 	public void reset(int iteration) {
 		this.searchTime.clear();
-		;
 		this.drivers.clear();
 	}
 

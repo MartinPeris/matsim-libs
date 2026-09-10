@@ -10,15 +10,15 @@ public class HashMapInverter<KeyClass,ValueClass> {
 	public HashMapInverter(HashMap<KeyClass, ValueClass> hashMap) {
 		this.hashMap = hashMap;
 	}
-	
+
 	public LinkedListValueHashMap<ValueClass, KeyClass> getLinkedListValueHashMap(){
 		LinkedListValueHashMap<ValueClass,KeyClass> linkedListValueHashMap=new LinkedListValueHashMap<ValueClass, KeyClass>();
-		
+
 		for (KeyClass key:hashMap.keySet()){
 			linkedListValueHashMap.put(hashMap.get(key), key);
 		}
-		
+
 		return linkedListValueHashMap;
 	}
-	
+
 }

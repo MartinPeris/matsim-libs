@@ -43,8 +43,9 @@ public class RandomErrorTermManager {
 			LinkedList<Id> parkingIds, Collection<? extends Person> persons, int seed) {
 				this.epsilonDistribution = epsilonDistribution;
 
-		Random random = new Random();
-		random.setSeed(seed);
+		// new Random(seed) rather than setSeed on a freshly constructed one: the sequence is
+		// identical, and it stops SpotBugs flagging a Random that is built and immediately reseeded.
+		Random random = new Random(seed);
 		for (Id parkingId:parkingIds){
 			parkingKValue.put(parkingId, random.nextDouble());
 		}

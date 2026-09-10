@@ -30,12 +30,12 @@ import org.matsim.core.population.routes.NetworkRoute;
 public interface ParkingRouter {
 	/**
 	 * *
-	 * @param intendedRoute: may be a network route (car trips) or may be generic (carsharing etc.) 
+	 * @param intendedRoute: may be a network route (car trips) or may be generic (carsharing etc.)
 	 * @param departureTime
 	 * @param startLinkId
 	 * @return
 	 */
 
 	NetworkRoute getRouteFromParkingToDestination(Id<Link> destinationLinkId, double departureTime, Id<Link> startLinkId);
-	
+
 }

@@ -220,7 +220,3 @@ public class ZoneParkingOccupationListener implements MobsimBeforeCleanupListene
 	}
 
 }
-
-
-
-

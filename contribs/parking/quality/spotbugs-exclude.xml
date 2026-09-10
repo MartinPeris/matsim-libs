@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Every entry must name a class and a pattern and say why. A blanket exclusion is a way of not
+  knowing what the tool found.
+-->
+<FindBugsFilter>
+  <!--
+    False positive, confirmed at Max effort. DMI_RANDOM_USED_ONLY_ONCE warns about a Random built to
+    draw a single number and then discarded. This one is built once from the run's seed and drawn
+    from inside two loops, once per parking facility and once per person, which is precisely the
+    reuse the detector exists to encourage. The detector reports one instance per call site rather
+    than per allocation, which is what makes the loops invisible to it.
+  -->
+  <Match>
+    <Class name="org.matsim.contrib.parking.parkingchoice.PC2.scoring.RandomErrorTermManager"/>
+    <Bug pattern="DMI_RANDOM_USED_ONLY_ONCE"/>
+  </Match>
+</FindBugsFilter>

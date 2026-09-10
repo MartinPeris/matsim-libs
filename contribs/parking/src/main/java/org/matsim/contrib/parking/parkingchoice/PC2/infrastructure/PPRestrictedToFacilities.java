@@ -43,7 +43,7 @@ public class PPRestrictedToFacilities extends PublicParking implements PrivatePa
 	public void PPRestrictedToIndividuals(HashSet<Id<ActivityFacility>> facilityIds){
 		this.setFacilityIds(facilityIds);
 	}
-	
+
 	@Override
 	public boolean isAllowedToUseParking(Id<Person> personId, Id<ActivityFacility> actFacilityId, String actType) {
 		return getFacilityIds().contains(actFacilityId);

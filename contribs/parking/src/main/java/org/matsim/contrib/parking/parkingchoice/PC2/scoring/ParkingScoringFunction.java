@@ -31,7 +31,7 @@ public class ParkingScoringFunction implements BasicScoring{
 		this.plan = plan;
 		this.parkingScoreManager = parkingScoreManager;
 	}
-	
+
 	@Override
 	public void finish() {
 		score = parkingScoreManager.getScore(plan.getPerson().getId());

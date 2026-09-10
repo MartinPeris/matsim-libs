@@ -8,7 +8,7 @@ public class SortableMapObject<Key> implements Comparable<SortableMapObject> {
 	/**
 	 * attention: it gives you the smaller number. If you are using negative
 	 * weights and need the best score, use multiply by -1.0, before insertion
-	 * 
+	 *
 	 * @param key
 	 * @param weight
 	 */

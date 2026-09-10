@@ -28,7 +28,7 @@ import org.matsim.contrib.parking.parkingchoice.PC2.scoring.AbstractParkingBetas
  */
 class ParkingBetaExample extends AbstractParkingBetas {
 
-	
+
 	@Override
 	public double getParkingWalkBeta(Person person,
 			double activityDurationInSeconds) {
@@ -39,8 +39,8 @@ class ParkingBetaExample extends AbstractParkingBetas {
 	public double getParkingCostBeta(Person person) {
 		return 1;
 	}
-	
-	
-	
+
+
+
 
 }

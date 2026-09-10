@@ -41,19 +41,19 @@ import gnu.trove.map.hash.TLongIntHashMap;
  * Instances of this class typically will only be provided by {@linkplain PenaltyGenerator} implementations. This is a
  * deliberate decision to underline the immutability of this object.
  * </p>
- * 
+ *
  * @author tkohl / Senozon
  *
  */
 class PenaltyCalculator {
-	
+
 	private final TLongIntMap[] numberOfEntities;
 	private final int numberOfTimeBins;
 	private final int timeBinSize;
 	private final HectareMapper hectareMapper;
-	
+
 	private PenaltyFunction penaltyFunction;
-	
+
 	/*package*/ PenaltyCalculator(TLongIntMap[] numberOfEntities, int timeBinSize, HectareMapper hectareMapper) {
 		this.numberOfEntities = numberOfEntities;
 		this.numberOfTimeBins = numberOfEntities.length;
@@ -61,19 +61,19 @@ class PenaltyCalculator {
 		this.hectareMapper = hectareMapper;
 		this.setPenaltyFunction(new DefaultPenaltyFunction());
 	}
-	
+
 	/**
 	 * Sets the penalty function that translates the number of entities in a space-time-bin into a time-penalty
-	 * 
+	 *
 	 * @param function
 	 */
 	public void setPenaltyFunction(PenaltyFunction function) {
 		this.penaltyFunction = function;
 	}
-	
+
 	/**
 	 * Fetches the penalty for the specified space-time-bin
-	 * 
+	 *
 	 * @param time the time for which to get the penalty
 	 * @param x the x-coordinate for which to get the penalty
 	 * @param y the y-coordinate for which to get the penalty
@@ -85,10 +85,10 @@ class PenaltyCalculator {
 		int cars = this.numberOfEntities[timebin].get(this.hectareMapper.getKey(x, y));
 		return this.penaltyFunction.calculatePenalty(cars);
 	}
-	
+
 	/**
 	 * Fetches the penalty for the specified space-time-bin
-	 * 
+	 *
 	 * @param time the time for which to get the penalty
 	 * @param coord the coordinate for which to get the penalty
 	 * @return the penalty in the space-time-bin
@@ -96,11 +96,11 @@ class PenaltyCalculator {
 	public double getPenalty(double time, Coord coord) {
 		return getPenalty(time, coord.getX(), coord.getY());
 	}
-	
+
 	/**
 	 * Dumps the penalties for all space-time-bins with a non-zero number of entities (there may be some with zero
 	 * entities in the dump however) as a csv file with the header "{@code x;y;t;penalty}".
-	 * 
+	 *
 	 * @param outputfile The file in which to write
 	 */
 	public void dump(URL outputfile) {
@@ -125,11 +125,11 @@ class PenaltyCalculator {
 			throw new UncheckedIOException(e);
 		}
 	}
-	
+
 	/**
 	 * Creates a dummy calculator with one timebin and a spatial binsize of 100km. It returns 3600s (1h) on
 	 * every request by using {@linkplain PenaltyCalculator.DummyPenaltyFunction} as function.
-	 * 
+	 *
 	 * @return The created dummy calculator
 	 */
 	public static PenaltyCalculator getDummyHourCalculator() {
@@ -139,11 +139,11 @@ class PenaltyCalculator {
 		penaltyCalculator.setPenaltyFunction(new DummyPenaltyFunction(3600));
 		return penaltyCalculator;
 	}
-	
+
 	/**
 	 * Creates a dummy calculator with one timebin and a spatial binsize of 100km. It returns 0 on
 	 * every request by using {@linkplain PenaltyCalculator.DummyPenaltyFunction} as function.
-	 * 
+	 *
 	 * @return The created dummy calculator
 	 */
 	public static PenaltyCalculator getDummyZeroCalculator() {
@@ -153,7 +153,7 @@ class PenaltyCalculator {
 		penaltyCalculator.setPenaltyFunction(new DummyPenaltyFunction(0));
 		return penaltyCalculator;
 	}
-	
+
 	/**
 	 * The default Penalty function which assumes 2.5s of penalty per entity in the space-time-bin but never more
 	 * than 900s (15min).
@@ -164,7 +164,7 @@ class PenaltyCalculator {
 			return Math.min(numberOfCars*2.5, 900);
 		}
 	}
-	
+
 	/**
 	 * Always returns a fixed time regardless of how many entities there are in the space-time-bin.
 	 */

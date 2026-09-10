@@ -23,9 +23,9 @@ import java.util.Map;
 import org.matsim.core.config.ReflectiveConfigGroup;
 
 public class ParkingProxyConfigGroup extends ReflectiveConfigGroup {
-	
+
 	public static enum Iter0Method {noPenalty, hourPenalty, takeFromAttributes, estimateFromPlans}
-	
+
 	public static final String GROUP_NAME = "parkingProxy";
 	public static final String ITER0 = "iter0";
 	public static final String OBSERVE_ONLY = "observeOnly";
@@ -34,7 +34,7 @@ public class ParkingProxyConfigGroup extends ReflectiveConfigGroup {
 	public static final String SCALE_FACTOR = "scenarioScaleFactor";
 	public static final String TIME_BIN_SIZE = "timeBinSize";
 	public static final String CARS_PER_1000_PERSONS = "carsPer1000Persons";
-	
+
 	private Iter0Method iter0Method = Iter0Method.hourPenalty;
 	private boolean observeOnly = false;
 	private double delayPerCar = 2.5;
@@ -46,11 +46,11 @@ public class ParkingProxyConfigGroup extends ReflectiveConfigGroup {
 	public ParkingProxyConfigGroup() {
 		super(GROUP_NAME);
 	}
-	
+
 	@Override
 	public Map<String, String> getComments() {
 		Map<String, String> comments = super.getComments();
-		comments.put(SCALE_FACTOR, "The inverse of the scenario perentage, i.e. the number with which to multiply the" 
+		comments.put(SCALE_FACTOR, "The inverse of the scenario perentage, i.e. the number with which to multiply the"
 				+ " number of agents to get the real life population, e.g. 4 in a 25% scenario. Needs to be an Intger,"
 				+ " so in case of weird percentages (e.g. 1/3) please round.");
 		comments.put(DELAY_PER_CAR, "in seconds");
@@ -58,7 +58,7 @@ public class ParkingProxyConfigGroup extends ReflectiveConfigGroup {
 		comments.put(TIME_BIN_SIZE, "in seconds");
 		return comments;
 	}
-	
+
 	@StringGetter(ITER0)
 	public Iter0Method getIter0Method() {
 		return this.iter0Method;
@@ -67,7 +67,7 @@ public class ParkingProxyConfigGroup extends ReflectiveConfigGroup {
 	public void setIter0Method(Iter0Method iter0Method) {
 		this.iter0Method = iter0Method;
 	}
-	
+
 	@StringGetter(OBSERVE_ONLY)
 	public boolean getObserveOnly() {
 		return this.observeOnly;
@@ -85,7 +85,7 @@ public class ParkingProxyConfigGroup extends ReflectiveConfigGroup {
 	public void setDelayPerCar(double delayPerCar) {
 		this.delayPerCar = delayPerCar;
 	}
-	
+
 	@StringGetter(MAX_DELAY)
 	public double getMaxDelay() {
 		return this.maxDelay;
@@ -112,7 +112,7 @@ public class ParkingProxyConfigGroup extends ReflectiveConfigGroup {
 	public void setScenarioScaleFactor(int scenarioScaleFactor) {
 		this.scenarioScaleFactor = scenarioScaleFactor;
 	}
-	
+
 	@StringGetter(CARS_PER_1000_PERSONS)
 	public int getCarsPer1000Persons() {
 		return carsPer1000Persons;

@@ -42,11 +42,11 @@ import gnu.trove.map.hash.TObjectIntHashMap;
 import gnu.trove.procedure.TObjectIntProcedure;
 
 public class RegionModeshareAnalyzer extends AbstractPersonAlgorithm {
-	
+
 	private final Collection<SimpleFeature> areas;
 	private final Map<String, TObjectIntMap<String>> inModes;
 	private final Map<String, TObjectIntMap<String>> outModes;
-	
+
 	public RegionModeshareAnalyzer(Collection<SimpleFeature> areas) {
 		this.areas = areas;
 		inModes = new HashMap<>();
@@ -77,7 +77,7 @@ public class RegionModeshareAnalyzer extends AbstractPersonAlgorithm {
 			}
 		}
 	}
-	
+
 	public void write(File outfile) {
 		try(BufferedWriter writer = new BufferedWriter(new FileWriter(outfile))) {
 			writer.write("area;mode;in;out");

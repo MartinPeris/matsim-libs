@@ -24,7 +24,7 @@ public class DistanceMemoryDynLeg extends ParkingDynLeg {
 															ParkingSearchManager parkingManager, Id<Vehicle> vehicleId, MobsimTimer timer, EventsManager events) {
 		super(mode, route, logic, parkingManager, vehicleId, timer, events);
 	}
-	
+
 	@Override
 	public void movedOverNode(Id<Link> newLinkId) {
 		currentLinkIdx++;
@@ -71,5 +71,5 @@ public class DistanceMemoryDynLeg extends ParkingDynLeg {
 			}
 		}
 	}
-	
+
 }

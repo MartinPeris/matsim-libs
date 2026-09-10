@@ -25,16 +25,16 @@ import org.matsim.facilities.ActivityFacility;
 public interface PrivateParking extends PC2Parking{
 
 	public boolean isAllowedToUseParking(Id<Person> personId, Id<ActivityFacility> actFacilityId, String actType);
-	
+
 //	//allow restricting to single person, actType at facility or whole facility.
 //	String restrictionType;
 //	HashSet<Id> facilityIds;
 //	LinkedListValueHashMap<Id> actTypes;
-////Todo three types	
-//	
+////Todo three types
+//
 //	public boolean isAllowedToUseParking(Id personId, Id actFacilityId, String actType){
 //		if (restrictionType.equalsIgnoreCase("personId")){
-//			
+//
 //		} else if (restrictionType.equalsIgnoreCase("facility")){
 //			return facilityIds.contains(actFacilityId);
 //		}else if (restrictionType.equalsIgnoreCase("actType")){
@@ -42,7 +42,7 @@ public interface PrivateParking extends PC2Parking{
 //		} else {
 //			DebugLib.stopSystemAndReportInconsistency();
 //		}
-//		
+//
 //		return ownerId==agentId;
 //	}
 

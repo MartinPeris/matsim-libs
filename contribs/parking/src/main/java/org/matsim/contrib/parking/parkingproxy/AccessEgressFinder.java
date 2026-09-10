@@ -29,12 +29,12 @@ import org.matsim.api.core.v01.population.PlanElement;
 
 /**
  * Class to identify access and egress walk legs from/to a certain "main" leg mode (e.g. car or pt)
- * 
+ *
  * @author tkohl / Senozon
  *
  */
 class AccessEgressFinder {
-	
+
 	/**
 	 * Simple container class holding a leg and an act. Could be replaced by a Tuple, but I think the explicit
 	 * field names result in easier to read code.
@@ -44,30 +44,30 @@ class AccessEgressFinder {
 		public Leg leg;
 		public Activity act;
 	}
-	
+
 	private static enum EgressStage {leg, walk, activity}
 	private static enum AccessStage {activity, walk, leg}
 
 	private final String legmode;
-	
+
 	/**
 	 * Initiates the class by defining the relevant mode you want to know access and egress walks of.
-	 * 
+	 *
 	 * @param legmode the mode as used in the plans
 	 */
 	public AccessEgressFinder(String legmode) {
 		this.legmode = legmode;
 	}
-	
+
 	/**
 	 * Finds all egress walks corresponding to the legmode and returns them together with the activity <b>following</b> that walk.
-	 * 
+	 *
 	 * @param plan The plan in which to search for egress walks
 	 * @return A chronological list of {@linkplain LegActPair}s each containing the egress Leg and the following Activity.
 	 */
 	public List<LegActPair> findEgressWalks(Plan plan) {
 		List<LegActPair> foundEgressWalks = new LinkedList<LegActPair>();
-		
+
 		// we need to go through a bit of a hussle here to differentiate between egress walks
 		// from cars from those from pt. We basically emulate a state machine cycling through
 		// states defined in the EgressStage enum.
@@ -96,19 +96,19 @@ class AccessEgressFinder {
 				}
 			}
 		}
-		
+
 		return foundEgressWalks;
 	}
-	
+
 	/**
 	 * Finds all access walks corresponding to the legmode and returns them together with the activity <b>before</b> that walk.
-	 * 
+	 *
 	 * @param plan The plan in which to search for access walks
 	 * @return A chronological list of {@linkplain LegActPair}s each containing the access Leg and the previous Activity.
 	 */
 	public List<LegActPair> findAccessWalks(Plan plan) {
 		List<LegActPair> foundAccessWalks = new LinkedList<LegActPair>();
-		
+
 		// we need to go through a bit of a hussle here to differentiate between access walks
 		// to cars from those to pt. We basically emulate a state machine cycling through
 		// states defined in the AccessStage enum.
@@ -149,7 +149,7 @@ class AccessEgressFinder {
 				}
 			}
 		}
-		
+
 		return foundAccessWalks;
 	}
 }

@@ -9,8 +9,8 @@
  * contain the delay. This circumvents the issue that the number of cars might change between iterations but the stored plan does not - the delay is calculated each iteration
  * directly in the mobsim.
  * </ul>
- * 
- * 
+ *
+ *
  * @author tkohl / Senozon
  *
  */

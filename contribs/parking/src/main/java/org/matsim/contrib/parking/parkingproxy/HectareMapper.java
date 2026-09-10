@@ -34,25 +34,25 @@ import org.matsim.api.core.v01.Coord;
  * <b>Important note:</b> This class works with int and long values and is therefore best used
  * with coordinate systems based on a metric grid. It will especially not work with WGS84!
  * </p>
- * 
+ *
  * @author tkohl / Senozon after a concept by mrieser (then also Senozon)
  *
  */
 class HectareMapper {
 	private final int gridsize;
-	
+
 	/**
 	 * Sets up the mapping grid.
-	 * 
+	 *
 	 * @param gridsize the x- and y-dimension of one gridcell (in terms of unitless coordinates)
 	 */
 	public HectareMapper(int gridsize) {
 		this.gridsize = gridsize;
 	}
-	
+
 	/**
 	 * Returns the hectare key of the gridcell containing the given coordinate.
-	 * 
+	 *
 	 * @param x
 	 * @param y
 	 * @return
@@ -63,10 +63,10 @@ class HectareMapper {
 		long key = ((yCell & 0x0000_00000_FFFF_FFFFL) << 32) | (xCell & 0x0000_00000_FFFF_FFFFL);
 		return key;
 	}
-	
+
 	/**
 	 * Returns the hectare key of the gridcell containing the given coordinates.
-	 * 
+	 *
 	 * @param coord
 	 * @return
 	 */
@@ -76,7 +76,7 @@ class HectareMapper {
 
 	/**
 	 * Returns the center coordinate of the hectare corresponding to the given hectare key.
-	 * 
+	 *
 	 * @param key
 	 * @return
 	 */

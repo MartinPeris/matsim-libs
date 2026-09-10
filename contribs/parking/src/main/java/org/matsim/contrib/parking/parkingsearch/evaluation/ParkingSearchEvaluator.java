@@ -18,7 +18,7 @@
  * *********************************************************************** */
 
 /**
- * 
+ *
  */
 package org.matsim.contrib.parking.parkingsearch.evaluation;
 
@@ -58,13 +58,13 @@ public class ParkingSearchEvaluator implements TeleportationArrivalEventHandler,
 	Map<Id<Person>,Double> walkDistance = new HashMap<>();
 	Map<Id<Link>,List<Double>> distances = new HashMap<>();
 	Map<Id<Link>,List<Double>> times = new HashMap<>();
-	
+
 	/* (non-Javadoc)
 	 * @see org.matsim.core.events.handler.EventHandler#reset(int)
 	 */
 	@Override
 	public void reset(int iteration) {
-		this.departureTimes.clear();;
+		this.departureTimes.clear();
 		this.walkDistance.clear();
 		this.distances.clear();
 		this.times.clear();
@@ -78,7 +78,7 @@ public class ParkingSearchEvaluator implements TeleportationArrivalEventHandler,
 		if (departureTimes.containsKey(event.getPersonId())){
 			this.walkDistance.put(event.getPersonId(), event.getDistance());
 		}
-		
+
 	}
 
 	/* (non-Javadoc)
@@ -97,7 +97,7 @@ public class ParkingSearchEvaluator implements TeleportationArrivalEventHandler,
 			this.distances.get(linkId).add(walkD);
 			this.times.get(linkId).add(walkT);
 		}
-		
+
 	}
 
 	/* (non-Javadoc)
@@ -107,37 +107,37 @@ public class ParkingSearchEvaluator implements TeleportationArrivalEventHandler,
 	public void handleEvent(PersonDepartureEvent event) {
 		if (event.getLegMode().equals(TransportMode.non_network_walk )){
 			this.departureTimes.put(event.getPersonId(), event.getTime());
-		}	
+		}
 	}
-	
+
 	public void writeEgressWalkStatistics(String folder){
 		String distanceFile = folder+"/egressWalkDistances.csv";
 		String timesFile = folder+"/egressWalkTimes.csv";
 		writeStats(this.distances,distanceFile);
 		writeStats(this.times,timesFile);
-		
+
 	}
 
 	/**
 	 * @param distances2
 	 * @param distanceFile
-	 */	
+	 */
 	private void writeStats(Map<Id<Link>, List<Double>> map, String distanceFile) {
 		BufferedWriter bw = IOUtils.getBufferedWriter(distanceFile);
-		
+
 		try {
 			bw.write("LinkId;Average;Min;Max;Arrivals");
 			for (Entry<Id<Link>, List<Double>> e : map.entrySet()){
 				bw.newLine();
 				bw.write(e.getKey()+";"+DoubleMath.mean(e.getValue())+";"+Collections.min(e.getValue())+";"+Collections.max(e.getValue())+";"+e.getValue().size());
-				
+
 			}
 			bw.flush();
 			bw.close();
 		} catch (IOException e) {
 			// TODO Auto-generated catch block
 			e.printStackTrace();
-		}	
+		}
 	}
 
 }

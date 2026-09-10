@@ -7,6 +7,13 @@
 	<modelVersion>4.0.0</modelVersion>
 	<groupId>org.matsim.contrib</groupId>
 	<artifactId>parking</artifactId>
+
+	<properties>
+		<!-- Ratchet, not a target. Raise as coverage rises; never lower to make a build pass. -->
+		<parking.coverage.minimum.line>0.58</parking.coverage.minimum.line>
+		<parking.coverage.minimum.branch>0.47</parking.coverage.minimum.branch>
+	</properties>
+
 	<name>parking</name>
 	<dependencies>
 		<dependency>
@@ -59,4 +66,109 @@
 			<artifactId>guice</artifactId>
 		</dependency>
 	</dependencies>
+
+	<!--
+		Inert by design: no <activation> block, so nothing here runs in a normal build or in CI.
+		Invoke deliberately with -Pparking-quality, or through scripts/quality.sh.
+	-->
+	<profiles>
+		<profile>
+			<id>parking-quality</id>
+			<build>
+				<plugins>
+					<plugin>
+						<groupId>com.diffplug.spotless</groupId>
+						<artifactId>spotless-maven-plugin</artifactId>
+						<version>3.10.1</version>
+						<configuration>
+							<lineEndings>UNIX</lineEndings>
+							<formats>
+								<format>
+									<includes>
+										<include>src/main/java/**/*.java</include>
+										<include>src/test/java/**/*.java</include>
+									</includes>
+									<trimTrailingWhitespace/>
+									<endWithNewline/>
+								</format>
+							</formats>
+						</configuration>
+					</plugin>
+
+					<plugin>
+						<groupId>org.apache.maven.plugins</groupId>
+						<artifactId>maven-checkstyle-plugin</artifactId>
+						<version>3.6.0</version>
+						<configuration>
+							<configLocation>${project.basedir}/quality/checkstyle.xml</configLocation>
+							<consoleOutput>true</consoleOutput>
+							<failOnViolation>true</failOnViolation>
+							<includeTestSourceDirectory>true</includeTestSourceDirectory>
+							<linkXRef>false</linkXRef>
+						</configuration>
+					</plugin>
+
+					<plugin>
+						<groupId>com.github.spotbugs</groupId>
+						<artifactId>spotbugs-maven-plugin</artifactId>
+						<version>4.10.4.0</version>
+						<configuration>
+							<effort>Min</effort>
+							<threshold>High</threshold>
+							<failOnError>true</failOnError>
+							<excludeFilterFile>${project.basedir}/quality/spotbugs-exclude.xml</excludeFilterFile>
+							<xmlOutput>true</xmlOutput>
+						</configuration>
+					</plugin>
+
+					<plugin>
+						<groupId>org.jacoco</groupId>
+						<artifactId>jacoco-maven-plugin</artifactId>
+						<version>0.8.15</version>
+						<executions>
+							<execution>
+								<id>parking-quality-prepare-agent</id>
+								<goals>
+									<goal>prepare-agent</goal>
+								</goals>
+							</execution>
+							<execution>
+								<id>parking-quality-report</id>
+								<phase>verify</phase>
+								<goals>
+									<goal>report</goal>
+								</goals>
+							</execution>
+							<execution>
+								<id>parking-quality-check</id>
+								<phase>verify</phase>
+								<goals>
+									<goal>check</goal>
+								</goals>
+								<configuration>
+									<rules>
+										<rule>
+											<element>BUNDLE</element>
+											<limits>
+												<limit>
+													<counter>LINE</counter>
+													<value>COVEREDRATIO</value>
+													<minimum>${parking.coverage.minimum.line}</minimum>
+												</limit>
+												<limit>
+													<counter>BRANCH</counter>
+													<value>COVEREDRATIO</value>
+													<minimum>${parking.coverage.minimum.branch}</minimum>
+												</limit>
+											</limits>
+										</rule>
+									</rules>
+								</configuration>
+							</execution>
+						</executions>
+					</plugin>
+				</plugins>
+			</build>
+		</profile>
+	</profiles>
 </project>

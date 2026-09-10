@@ -126,7 +126,7 @@ public class ParkingAgentFactory implements AgentFactory {
 					network, parkingRouter, events, parkingLogic, ((QSim) qsim).getSimTimer(),
 					teleportationLogic, psConfigGroup);
 			}
-        };
+        }
 
         Id<Link> startLinkId = ((Activity) p.getSelectedPlan().getPlanElements().get(0)).getLinkId();
 		if (startLinkId == null) {

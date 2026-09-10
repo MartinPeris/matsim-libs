@@ -37,7 +37,7 @@ public class PPRestrictedToFacilitiesAndActivities extends PublicParking impleme
 	public void PPRestrictedToIndividuals(LinkedListValueHashMap<Id,String> facilitiesActs){
 		this.facilitiesActs = facilitiesActs;
 	}
-	
+
 	@Override
 	public boolean isAllowedToUseParking(Id personId, Id actFacilityId, String actType) {
 		return facilitiesActs.getKeySet().contains(actFacilityId) && facilitiesActs.get(actFacilityId).contains(actType);
