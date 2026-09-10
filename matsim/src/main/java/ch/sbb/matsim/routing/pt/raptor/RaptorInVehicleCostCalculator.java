@@ -19,6 +19,9 @@
  * *********************************************************************** */
 package ch.sbb.matsim.routing.pt.raptor;
 
+import org.matsim.api.core.v01.Id;
+import org.matsim.pt.transitSchedule.api.TransitStopFacility;
+
 import org.matsim.api.core.v01.population.Person;
 import org.matsim.vehicles.Vehicle;
 
@@ -35,6 +38,24 @@ public interface RaptorInVehicleCostCalculator {
 		double getInVehicleTime();
 		double getPassengerCount();
 		double getTimeOfDay();
+
+		/**
+		 * The stop this segment leaves from, or null where the implementation cannot say.
+		 * <p>
+		 * Without this, a cost calculator can see how long a segment takes but not which segment it is,
+		 * so it cannot consult anything keyed by stop: observed inter-stop travel times, a per-corridor
+		 * penalty, a link-specific charge. Defaulted to null rather than made abstract so that existing
+		 * implementations outside this package keep compiling; a caller must handle null by falling back
+		 * to whatever it would have done anyway.
+		 */
+		default Id<TransitStopFacility> getFromStop() {
+			return null;
+		}
+
+		/** The stop this segment arrives at, or null. See {@link #getFromStop()}. */
+		default Id<TransitStopFacility> getToStop() {
+			return null;
+		}
 	}
 
 }

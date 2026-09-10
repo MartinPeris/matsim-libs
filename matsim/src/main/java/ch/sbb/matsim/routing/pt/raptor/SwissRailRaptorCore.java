@@ -1286,6 +1286,8 @@ public class SwissRailRaptorCore {
         private double currentPassengerCount = -1;
         private double currentTimeOfDay = -1;
         private Id<Departure> currentDepartureId = null;
+        private Id<TransitStopFacility> currentFromStopId = null;
+        private Id<TransitStopFacility> currentToStopId = null;
 
         public RouteSegmentIteratorImpl(SwissRailRaptorData data) {
             this.data = data;
@@ -1301,6 +1303,8 @@ public class SwissRailRaptorCore {
             this.currentInVehicleTime = -1;
             this.currentPassengerCount = -1;
             this.currentTimeOfDay = -1;
+            this.currentFromStopId = null;
+            this.currentToStopId = null;
             this.currentDepartureId = this.data.departureIds[departureIndex];
         }
 
@@ -1330,6 +1334,8 @@ public class SwissRailRaptorCore {
             }
             this.currentInVehicleTime = endTime - startTime;
             this.currentTimeOfDay = startTime;
+            this.currentFromStopId = depRouteStop.routeStop.getStopFacility().getId();
+            this.currentToStopId = nextRouteStop.routeStop.getStopFacility().getId();
 
             DepartureData depData = this.data.occupancyData.getDepartureData(nextRouteStop.line.getId(), nextRouteStop.route.getId(), depRouteStop.routeStop.getStopFacility().getId(), this.currentDepartureId);
             this.currentPassengerCount = depData == null ? 0 : depData.paxCountAtDeparture;
@@ -1348,6 +1354,16 @@ public class SwissRailRaptorCore {
         @Override
         public double getTimeOfDay() {
             return this.currentTimeOfDay;
+        }
+
+        @Override
+        public Id<TransitStopFacility> getFromStop() {
+            return this.currentFromStopId;
+        }
+
+        @Override
+        public Id<TransitStopFacility> getToStop() {
+            return this.currentToStopId;
         }
     }
 }

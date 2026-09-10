@@ -17,6 +17,8 @@ public final class ObservedSkimsConfigGroup extends ReflectiveConfigGroup {
 	private double updateWeight = 0.5;
 	private double waitingCostFactor = 1.0;
 	private boolean waitTimeEnabled = true;
+	private boolean stopStopTimeEnabled = true;
+	private double unreliabilityCostFactor = 1.0;
 
 	public ObservedSkimsConfigGroup() {
 		super(GROUP_NAME);
@@ -41,6 +43,17 @@ public final class ObservedSkimsConfigGroup extends ReflectiveConfigGroup {
 				+ "generally supports but which is a claim about a population and belongs in your config, "
 				+ "not in a library default. This is NOT the knob for 'waiting is worse than riding': that "
 				+ "is scoring.waitingPt, and it applies to every wait rather than only the unpredicted part.");
+		comments.put("stopStopTimeEnabled",
+			"Whether to measure inter-stop running times and charge an in-vehicle leg for the part the "
+				+ "timetable does not predict. Incompatible with SwissRailRaptor's capacity-dependent "
+				+ "in-vehicle cost: both consume the same single-pass segment iterator, and the module "
+				+ "refuses the combination rather than silently costing every leg at zero.");
+		comments.put("unreliabilityCostFactor",
+			"Multiplies the unpredicted part of an in-vehicle running time before it is priced, at the "
+				+ "mode's own in-vehicle utility. 1.0 says a minute lost to congestion costs what a minute "
+				+ "of scheduled riding costs. Above 1.0 says time lost unpredictably is worse than time "
+				+ "budgeted for, which is defensible and is a claim about a population, so it is yours to "
+				+ "make rather than a library default.");
 		comments.put("waitTimeEnabled",
 			"Whether to measure transit wait times and charge transfers for the part the timetable does not "
 				+ "predict.");
@@ -94,5 +107,29 @@ public final class ObservedSkimsConfigGroup extends ReflectiveConfigGroup {
 	@StringSetter("waitTimeEnabled")
 	public void setWaitTimeEnabled(boolean waitTimeEnabled) {
 		this.waitTimeEnabled = waitTimeEnabled;
+	}
+
+	@StringGetter("stopStopTimeEnabled")
+	public boolean isStopStopTimeEnabled() {
+		return stopStopTimeEnabled;
+	}
+
+	@StringSetter("stopStopTimeEnabled")
+	public void setStopStopTimeEnabled(boolean stopStopTimeEnabled) {
+		this.stopStopTimeEnabled = stopStopTimeEnabled;
+	}
+
+	@StringGetter("unreliabilityCostFactor")
+	public double getUnreliabilityCostFactor() {
+		return unreliabilityCostFactor;
+	}
+
+	@StringSetter("unreliabilityCostFactor")
+	public void setUnreliabilityCostFactor(double unreliabilityCostFactor) {
+		if (!(unreliabilityCostFactor >= 0)) {
+			throw new IllegalArgumentException(
+				"unreliabilityCostFactor must be non-negative, got " + unreliabilityCostFactor);
+		}
+		this.unreliabilityCostFactor = unreliabilityCostFactor;
 	}
 }

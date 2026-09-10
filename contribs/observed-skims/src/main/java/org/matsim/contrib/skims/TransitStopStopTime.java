@@ -12,7 +12,6 @@ import org.matsim.pt.transitSchedule.api.TransitStopFacility;
  * <p>
  * Implementations must never return infinity or NaN; an unobserved pair falls back to the scheduled time.
  */
-@FunctionalInterface
 public interface TransitStopStopTime {
 
 	/**
@@ -21,4 +20,16 @@ public interface TransitStopStopTime {
 	 *         infinite or NaN
 	 */
 	double stopStopTime(Id<TransitStopFacility> fromStopId, Id<TransitStopFacility> toStopId, double time);
+
+	/**
+	 * How much longer the observed run between two stops is than the timetable implies.
+	 * <p>
+	 * As with {@link TransitWaitTime#excessWaitTime}, this and not the absolute figure is what a cost
+	 * consumer wants: the router already prices the scheduled duration, so charging the whole observed
+	 * time would count it twice. Zero where nothing has been observed, so a fresh skim changes nothing.
+	 * Negative where a service beats its timetable, which is reported rather than floored.
+	 *
+	 * @return observed minus scheduled seconds, never infinite or NaN
+	 */
+	double excessStopStopTime(Id<TransitStopFacility> fromStopId, Id<TransitStopFacility> toStopId, double time);
 }

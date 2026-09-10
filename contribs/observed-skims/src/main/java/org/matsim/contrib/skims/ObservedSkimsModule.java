@@ -9,6 +9,7 @@ import com.google.inject.Inject;
 import com.google.inject.Provider;
 import com.google.inject.Singleton;
 
+import ch.sbb.matsim.routing.pt.raptor.RaptorInVehicleCostCalculator;
 import ch.sbb.matsim.routing.pt.raptor.RaptorTransferCostCalculator;
 
 /**
@@ -44,14 +45,21 @@ public final class ObservedSkimsModule extends AbstractModule {
 
 	@Override
 	public void install() {
-		if (!ConfigUtils.addOrGetModule(getConfig(), ObservedSkimsConfigGroup.class).isWaitTimeEnabled()) {
-			return;
+		ObservedSkimsConfigGroup params = ConfigUtils.addOrGetModule(getConfig(), ObservedSkimsConfigGroup.class);
+		if (params.isWaitTimeEnabled()) {
+			bind(ObservedTransitWaitTime.class).toProvider(WaitTimeSkimProvider.class).asEagerSingleton();
+			bind(TransitWaitTime.class).to(ObservedTransitWaitTime.class);
+			addEventHandlerBinding().to(ObservedTransitWaitTime.class);
+			addControllerListenerBinding().to(ObservedTransitWaitTime.class);
+			bind(RaptorTransferCostCalculator.class).toProvider(TransferCostProvider.class).in(Singleton.class);
 		}
-		bind(ObservedTransitWaitTime.class).toProvider(WaitTimeSkimProvider.class).asEagerSingleton();
-		bind(TransitWaitTime.class).to(ObservedTransitWaitTime.class);
-		addEventHandlerBinding().to(ObservedTransitWaitTime.class);
-		addControllerListenerBinding().to(ObservedTransitWaitTime.class);
-		bind(RaptorTransferCostCalculator.class).toProvider(TransferCostProvider.class).in(Singleton.class);
+		if (params.isStopStopTimeEnabled()) {
+			bind(ObservedTransitStopStopTime.class).toProvider(StopStopSkimProvider.class).asEagerSingleton();
+			bind(TransitStopStopTime.class).to(ObservedTransitStopStopTime.class);
+			addEventHandlerBinding().to(ObservedTransitStopStopTime.class);
+			addControllerListenerBinding().to(ObservedTransitStopStopTime.class);
+			bind(RaptorInVehicleCostCalculator.class).toProvider(InVehicleCostProvider.class).in(Singleton.class);
+		}
 	}
 
 	private static final class WaitTimeSkimProvider implements Provider<ObservedTransitWaitTime> {
@@ -69,6 +77,41 @@ public final class ObservedSkimsModule extends AbstractModule {
 			ObservedSkimsConfigGroup params = ConfigUtils.addOrGetModule(config, ObservedSkimsConfigGroup.class);
 			return new ObservedTransitWaitTime(schedule, params.getBinSize(),
 				config.qsim().getEndTime().orElse(DEFAULT_END_TIME), params.getUpdateWeight());
+		}
+	}
+
+	private static final class StopStopSkimProvider implements Provider<ObservedTransitStopStopTime> {
+		private final TransitSchedule schedule;
+		private final Config config;
+
+		@Inject
+		StopStopSkimProvider(TransitSchedule schedule, Config config) {
+			this.schedule = schedule;
+			this.config = config;
+		}
+
+		@Override
+		public ObservedTransitStopStopTime get() {
+			ObservedSkimsConfigGroup params = ConfigUtils.addOrGetModule(config, ObservedSkimsConfigGroup.class);
+			return new ObservedTransitStopStopTime(schedule, params.getBinSize(),
+				config.qsim().getEndTime().orElse(DEFAULT_END_TIME), params.getUpdateWeight());
+		}
+	}
+
+	private static final class InVehicleCostProvider implements Provider<RaptorInVehicleCostCalculator> {
+		private final TransitStopStopTime stopStopTime;
+		private final Config config;
+
+		@Inject
+		InVehicleCostProvider(TransitStopStopTime stopStopTime, Config config) {
+			this.stopStopTime = stopStopTime;
+			this.config = config;
+		}
+
+		@Override
+		public RaptorInVehicleCostCalculator get() {
+			ObservedSkimsConfigGroup params = ConfigUtils.addOrGetModule(config, ObservedSkimsConfigGroup.class);
+			return new SkimAwareRaptorInVehicleCostCalculator(stopStopTime, params.getUnreliabilityCostFactor());
 		}
 	}
 
