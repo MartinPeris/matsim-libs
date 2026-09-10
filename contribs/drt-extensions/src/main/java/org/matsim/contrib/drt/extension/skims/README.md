@@ -1,0 +1,370 @@
+# Observed DRT wait times in intermodal routing
+
+## What problem this solves
+
+SwissRailRaptor can use DRT as an intermodal access or egress mode, but
+`DefaultRaptorIntermodalAccessEgress` costs such a leg from `leg.getTravelTime()` alone. It has no
+term for waiting, and the leg's travel time does not include any. A feeder leg whose vehicle arrives
+in twenty minutes therefore reaches the stop at the same modelled instant, and for the same price, as
+one whose vehicle is already at the kerb.
+
+DRT does estimate waiting elsewhere — `DrtEstimator` writes an `EST_WAIT_TIME` leg attribute — but
+nothing in routing or scoring reads it; its only consumer is the teleporting mobsim engine, and it
+exists only under `estimateAndTeleport`.
+
+This package measures what waiting actually was, and makes routing account for it.
+
+## What is recorded
+
+A **wait time skim**: mean waiting time per zone and time bin, rebuilt at the end of every iteration
+from that iteration's events, damped against the previous estimate.
+
+Waiting time uses the same formula as MATSim's own DRT analysis (`DrtAnalysisControlerListener`):
+
+```
+waitTime = PassengerPickedUpEvent.time - DrtRequestSubmittedEvent.earliestDepartureTime
+```
+
+Measured from *readiness*, not from submission, so a prebooked request is not charged for its own
+booking lead time. The event sequences come from `DrtEventSequenceCollector`, which the DRT analysis
+module already binds, so this package adds no event handling of its own.
+
+The formula matches the reported statistic; the *population* does not exactly. The skim counts
+requests that were picked up, whereas `DrtAnalysisControlerListener` counts only requests that also
+completed a drop-off, and the skim additionally excludes negative waits and origins outside the zone
+system. Expect small differences between the skim and `drt_trips_*.csv`, not identity.
+
+## Why zones rather than stops
+
+The obvious key is the DRT stop. It does not survive contact with the three operational schemes:
+
+| Scheme | Stop network | Consequence for a stop-keyed skim |
+| --- | --- | --- |
+| `stopbased` | curated, from `transitStopFile` | fine |
+| `serviceAreaBased` | **every link** in the service area, via `DrtStopFacilityImpl.createFromLink` | table size grows with the network |
+| `door2door` | empty — `ImmutableMap::of` | no key exists at all |
+
+A zone system is a tunable-resolution abstraction that already exists in-tree
+(`org.matsim.contrib.common.zones`), already has DRT plumbing, and keeps the table bounded in all
+three cases. Resolution becomes a config knob rather than a property of the scenario.
+
+## How the cost is applied
+
+This is the subtle part, and getting it wrong makes the feature do the opposite of what it should.
+
+The travel time this package returns becomes `InitialStop.accessTime`. `SwissRailRaptorCore` handles
+that quantity differently at the two ends of a trip, but — and this is the correction — **the charge
+this package applies is the same in both directions**: `factor × wait × -mu_wait`.
+
+The tempting mistake is to reason that on access the core "already charges" the DRT wait, so only
+the excess `(factor - 1)` is ours to add. An earlier version of this package did exactly that. It is
+a sign error. What the core charges is the *platform* wait, `(boardingTime - arrival)`, and pushing
+the arrival later by W does not add W to that — while the traveller still catches the same vehicle
+it **subtracts** W, *refunding* `W × mu_wait`. The core's net contribution on access is therefore
+`-W × mu_wait`, not `+W × mu_wait`, and charging only `(factor - 1)` leaves that refund uncancelled:
+at the default factor of 1.0 a longer wait came out **strictly cheaper**, by exactly `W × mu_wait`.
+
+The right way to see it: the traveller's *total* waiting is unchanged by W. Only its composition
+moves, out of the platform and into the DRT vehicle. To price DRT waiting at `factor × mu_wait` and
+platform waiting at `mu_wait`, the full amount must be charged here, at both ends:
+
+| Direction | Charged here | Contributed by Raptor | Net effect on route cost |
+| --- | --- | --- | --- |
+| access | `factor × wait × -mu_wait` | `-1 × wait × -mu_wait` (shorter platform wait) | `(factor - 1) × wait × -mu_wait` |
+| egress | `factor × wait × -mu_wait` | nothing | `factor × wait × -mu_wait` |
+
+Both rows are behaviourally right, and the asymmetry in the *net* column comes from Raptor's
+structure rather than from any asymmetry in what this package charges. On access the traveller swaps
+platform waiting for DRT waiting, so at factor 1.0 nothing changes. On egress the wait is purely
+additional — there is no platform wait to displace — so it is charged in full.
+
+`waitingCostFactor` is how onerous waiting for an on-demand vehicle is *relative to* waiting at a
+transit stop. **1.0, the default, is the neutral position**: a minute is a minute, wherever it is
+spent. At 1.0 the *net* access-side effect is zero, not because this package declines to charge, but
+because the charge and the core's refund cancel. The behavioural effect on access then comes through
+elapsed time: a long wait still makes the traveller miss the connection when it exceeds the slack at
+the stop, and still makes the whole trip slower and dearer against any alternative compared outside
+Raptor. Above 1.0 prices unscheduled waiting as worse than waiting for a timetabled service, which is
+what stated-preference work generally finds; this package does not pick that number for you.
+
+Because this reasoning is about the core's behaviour and not about this package's return value, the
+decorator's own unit tests cannot check it — they inspect only the number handed to the core, which
+is what let the sign error survive. `SkimAwareIntermodalAccessEgressRaptorIT` drives
+`SwissRailRaptorCore` end to end and asserts on the resulting route cost, including the invariant
+that a wait must never make a route cheaper at any factor. `RunDrtSkimsIT` goes one level
+further out and runs a whole intermodal DRT+PT controler, which is the only thing that exercises the
+Guice wiring: an overriding module that fails to replace `RaptorIntermodalAccessEgress` leaves every
+other test passing while routing quietly ignores waiting altogether.
+
+## Choosing `waitingCostFactor`, and why the default is 1.0
+
+**The default is 1.0 and should stay there.** It is the only value that embeds no unsourced
+behavioural parameter: it says a minute is a minute wherever it is spent, and nothing more. Every
+other value is a claim about a population, and a claim of that kind should be made in a config file
+by whoever can defend it for their scenario, not inherited silently from a library default.
+
+Note what 1.0 does and does not do, because the two ends differ:
+
+- **On egress** the wait is charged in full. Criterion "a plan with a bad wait scores worse" bites
+  directly.
+- **On access**, within the slack at the stop, the net cost effect is exactly zero — correctly, since
+  the traveller does the same total waiting either way. The wait still bites through elapsed time:
+  once it exceeds the slack it costs a connection, discretely and often expensively, and the trip is
+  slower against anything compared outside Raptor.
+
+So if a scenario is access-dominated — a DRT feeder into PT, which is the usual case — then at 1.0
+the *cost* channel does very little and the behaviour comes almost entirely from missed connections.
+If you want the access side to respond to wait length directly, a factor above 1.0 is the only lever
+here.
+
+**Do not reach for `waitingCostFactor` to express "waiting is worse than riding".** That is a
+different statement and there is a different knob for it. MATSim's `marginalUtlOfWaitingPt` defaults
+to the *pt* mode's `marginalUtilityOfTraveling` (`ScoringConfigGroup`), so out of the box waiting is
+priced exactly like sitting on the train — which stated-preference work broadly contradicts, usually
+putting waiting somewhere around 1.5–2.5× in-vehicle time. The fix for that is
+`scoring.waitingPt`, and it correctly applies to platform waiting too. `waitingCostFactor` means only
+"DRT waiting relative to *platform* waiting". Using it to compensate for an unset `waitingPt` would
+conflate the two and would apply the correction to DRT legs alone.
+
+The defensible reason to raise `waitingCostFactor` above 1.0 is narrower and worth stating plainly:
+this skim returns a **mean**, and waiting for an on-demand vehicle is less predictable than waiting
+for a timetabled one. Travellers respond to the distribution, not just its first moment, and the
+unreliability premium is real. A factor in the region of 1.2–1.5 is a crude proxy for that variance
+penalty. It is a proxy, though, not a measurement, and it should be calibrated rather than assumed —
+which is exactly why it is not the default.
+
+## Observed ride time, and the constraint ceiling
+
+The wait skim fixes a term Raptor was blind to. There is a second, larger error next to it, in a term
+Raptor does read.
+
+A routed DRT leg does not carry an expected duration. `DrtRoute.setConstraints` calls
+`setTravelTime(constraints.maxTravelDuration())` and `DefaultMainLegRouter` copies that onto the leg,
+so routing and scoring see
+
+```
+maxTravelTimeAlpha * unsharedRideTime + maxTravelTimeBeta
+```
+
+— the ceiling above which the operator would *reject* the request, not an expectation of it. For a
+short intermodal feeder leg that ceiling is dominated by `beta`. Measured in this package's
+integration test, with `alpha = 1.5` and `beta = 600`:
+
+| unshared ride | what routing sees | ratio |
+| --- | --- | --- |
+| 203 s | 904.5 s | 4.5x |
+| 405 s | 1207.5 s | 3.0x |
+
+`DrtRideTimeSkim` records what the ride actually cost, as a **factor** rather than a duration:
+
+```
+factor = (PassengerDroppedOffEvent.time - PassengerPickedUpEvent.time) / DrtRequestSubmittedEvent.unsharedRideTime
+```
+
+Only requests that were both picked up *and* dropped off contribute; `DrtEventSequenceCollector`
+counts a sequence as performed without a drop-off, so that is filtered explicitly.
+
+**Why a factor.** Ride time is strongly distance-dependent, so an absolute mean cannot be
+meaningfully aggregated — falling back to "the system-wide mean ride time" would tell a ten-kilometre
+trip it takes as long as the average two-kilometre one, which is worse than the estimate it replaced.
+A ratio is dimensionless, so the coarser fallback levels stay meaningful. Normalising against the
+*constraint* instead would bake `alpha` and `beta` into the stored number, so changing them would
+silently invalidate the skim; `unsharedRideTime` is a pure network property and does not.
+
+**How it is applied.** `factor x route.getDirectRideTime()` replaces the leg's ceiling, clamped into
+`[directRideTime, leg travel time]` — below the unshared ride is physically impossible, above the
+ceiling is a trip that would have been rejected, and a mean drawn from a coarse aggregate can land
+outside that range for an individual pair. Where nothing has been observed the leg is left exactly as
+it was, so there is no `defaultRideTimeFactor` to mis-set: installing the ride skim changes nothing
+until it has something to say.
+
+**Bounding.** Keying on zone *pairs* is what made the stop-keyed ancestor of this design intractable:
+it allocated an all-pairs table eagerly, O(n²) in stops over a link-derived stop set. Here only pairs
+that were actually travelled are stored, so the table grows with the origin-destination pairs a
+scenario uses rather than with the square of the zone count — 4 pairs over 16 cells in the
+integration scenario. A same-zone pair is an ordinary key, not an edge case; the ancestor threw on
+one.
+
+**What it is worth, and where.** In the integration scenario the observed factor settles at about
+**1.16**, so a 203-second unshared ride should reach routing as roughly 236 seconds against the
+904.5 seconds the ceiling gives it. What that buys depends on the direction, and the access side sets
+the same trap the wait term did.
+
+- **In time, always.** The traveller reaches the stop some eleven minutes earlier and can catch
+  departures the ceiling had them missing. This is the unambiguous gain and it applies everywhere.
+- **On egress, in cost too.** There is no offsetting waiting term, so the full
+  `delta x -mu_travel` lands on the route cost.
+- **On access, in cost, it depends — and can go either way.** Cutting the modelled ride does not
+  delete that time; it moves it out of the DRT vehicle and onto the platform, where
+  `SwissRailRaptorCore` charges it at `mu_wait` rather than at the mode's `mu_travel`. The route cost
+  moves by exactly
+
+  ```
+  delta x (mu_travel - mu_wait)
+  ```
+
+  which is a saving only where riding is dearer than waiting. Since `marginalUtlOfWaitingPt` defaults
+  to the *pt* mode's `marginalUtilityOfTraveling`, the sign is a property of the scenario's scoring
+  file, not of this package. `SkimAwareIntermodalAccessEgressRaptorIT` asserts that identity rather
+  than a direction, because the direction is not ours to promise.
+
+That is not a defect in either the skim or the core; it is what pricing two different activities at
+two different rates means. It is recorded here because the first version of the *wait* term was wrong
+in precisely this way — by assuming the core's response to a changed `accessTime` without checking
+its sign.
+
+## Direct DRT trips
+
+Everything above reaches routing through `SkimAwareRaptorIntermodalAccessEgress`, which
+SwissRailRaptor consults only for intermodal access and egress legs. A trip made *entirely* by DRT
+never passes through Raptor, so on that path nothing knew which origin-destination pairs the fleet
+serves well. That is the case where agents try a corridor DRT under mode choice, experience long
+detours, and abandon it once innovation stops: the score tells them it was bad, but nothing ever
+told them *where* it would be bad before they chose it.
+
+`SkimBackedDrtEstimator` is the second consumer of the same two skims, plugged into DRT's existing
+estimator architecture rather than beside it. It composes `DirectTripBasedDrtEstimator` from a
+`RideDurationEstimator` and a `WaitingTimeEstimator` backed by the ride and wait skims, and
+`DrtSkimsModule` binds it as the mode's `DrtEstimator`. That feeds:
+
+- `MultiModalDrtLegEstimator` (informed mode choice), so a DRT alternative is scored from an
+  OD-specific expected ride and wait instead of the constraint ceiling and a constant;
+- `EstimationRoutingModule` under `estimateAndTeleport`;
+- `DrtEstimateAnalyzer`, which writes `drt_estimates_<mode>.csv` — the per-iteration error of the
+  estimate against what the mobsim then did. Watch that file for convergence.
+
+Where the ride skim has nothing for a pair, the estimate falls back to the scenario's own
+`maxTravelTimeAlpha × direct + maxTravelTimeBeta`, so an unobserved pair is estimated exactly as a
+routed leg is today. The rejection rate is left at zero for now; see the limitations.
+
+**Against a control.** `RunDrtSkimsInformedModeChoiceIT` runs Kelheim twice with informed mode
+choice: once with the skims, once with a constant estimator fixed at that same ceiling. Mean absolute
+error of the estimate against what the mobsim then did, in seconds:
+
+| iteration | wait, skims | wait, ceiling | ride, skims | ride, ceiling |
+| --- | --- | --- | --- | --- |
+| 0 | 1633 | 1065 | 947 | 886 |
+| 2 | 547 | 1148 | 590 | 893 |
+
+Iteration 0 differs between the runs because the skims module also installs the Raptor decorator,
+which acts on Kelheim's intermodal DRT legs from the start. The ceiling's error does not fall because
+it learns; it moves only because the system under it drifts. Later iterations vary run to run
+(Kelheim uses four threads and the insertion search is parallel), so the test asserts direction and
+ordering, not these numbers.
+
+This only helps a mode-choice mechanism that *consults* the estimate. Plain `SubtourModeChoice`
+picks modes at random and learns from scores alone, and on that path the estimator is never asked.
+
+## Where it surfaces
+
+1. **In routing and scoring**, via `SkimAwareRaptorIntermodalAccessEgress` for intermodal legs and
+   `SkimBackedDrtEstimator` for direct DRT trips, as above.
+2. **As files**, per iteration directory: `drtWaitTimeSkim_<mode>.csv` with columns
+   `zone, timeBin, binStart, binEnd, observations, rejections, waitTime, carriedForward`, and
+   `drtRideTimeSkim_<mode>.csv` with
+   `fromZone, toZone, timeBin, binStart, binEnd, observations, rideTimeFactor, carriedForward`.
+3. **Programmatically**: inject the mode-keyed `Map<String, DrtWaitTimeSkim>` or the modal
+   `ZonalDrtWaitTimeSkim`, and call `lookup(linkId, time)`.
+
+## Damping, and honesty about provenance
+
+**Values are blended across iterations, not replaced.** An events-based skim overwritten wholesale
+each iteration invites the router and the mobsim to chase each other: the router avoids last
+iteration's slow zone, vehicles follow, the zone is now fast. `smoothingWeight` controls the blend —
+1.0 restores replacement; the permitted range is (0,1] because 0 would freeze the first iteration's
+estimate for the whole run. There is no published convergence result for any particular value; the
+default of 0.5 is a starting point, not a recommendation.
+
+**Every lookup reports where its number came from**, via `DrtWaitTimeSkim.Source`:
+
+| Source | Meaning |
+| --- | --- |
+| `ZONE_TIME_BIN` | observed in this zone and bin in the iteration just finished |
+| `ZONE_TIME_BIN_CARRIED` | this zone and bin have a value, but from an earlier iteration |
+| `ZONE_MEAN` | the zone's all-day mean |
+| `GLOBAL_TIME_BIN` | the system-wide mean for this bin |
+| `GLOBAL_MEAN` | the system-wide all-day mean |
+| `DEFAULT` | nothing observed anywhere; the configured constant |
+
+Only the last rests on a configured number. A result resting on `DEFAULT` throughout is a result
+about the config file, not about the scenario.
+
+## Usage
+
+```java
+DrtWithExtensionsConfigGroup drtCfg = new DrtWithExtensionsConfigGroup();
+drtCfg.addParameterSet(new DrtWaitTimeSkimParams());   // 15-min bins, square-grid zones, factor 1.0
+drtCfg.addParameterSet(new DrtRideTimeSkimParams());   // optional, and independent of the above
+
+Controler controler = DrtControlerCreator.createControler(config, scenario, false);
+controler.addOverridingModule(new MultiModeDrtSkimsModule());
+```
+
+`MultiModeDrtSkimsModule` must be an *overriding* module: it replaces the
+`RaptorIntermodalAccessEgress` binding made by `SwissRailRaptorModule`. It is a no-op if no DRT mode
+declares the parameter set, so installing it unconditionally is safe.
+
+## Configuration
+
+| Parameter | Default | Meaning |
+| --- | --- | --- |
+| `timeBinSize` | 900 s | Bin width. Smaller bins track the peak better but need more observations each. |
+| `horizon` | 108000 s | Period covered. Later departures are answered from the last bin. |
+| `smoothingWeight` | 0.5 | Weight on the newest iteration, in (0,1]. 1.0 = undamped replacement. |
+| `minObservations` | 1 | Observations needed before a value is trusted; thinner bins fall through. |
+| `defaultWaitTime` | 300 s | Last resort when nothing has been observed, e.g. iteration 0. |
+| `waitingCostFactor` | 1.0 | Onerousness of DRT waiting relative to waiting at a stop. Must agree across modes. |
+| `writeSkimCsv` | true | Write the per-iteration CSV. |
+| nested zone system | `SquareGridZoneSystem` | Any `ZoneSystemParams` — square grid, H3, or a shapefile. |
+
+The `rideTimeSkim` parameter set is separate and independently optional, with its own zone system —
+pairs need coarser cells than single zones do to keep them from going empty. It takes `timeBinSize`
+(default 3600 s), `horizon`, `smoothingWeight`, `minObservations` and `writeSkimCsv` with the same
+meanings, and deliberately has **no** default-factor parameter.
+
+## Known limitations
+
+- **Rejections are excluded from the mean.** A rejection is an unbounded wait, and averaging it in
+  would need a number this package has no basis to invent. The skim is therefore systematically
+  optimistic wherever rejection is common — worst exactly where service is worst. Rejection counts
+  sit beside the wait times in the CSV and the per-iteration rate is logged as a warning, so the bias
+  is visible rather than hidden. Folding a rejection penalty into the cost is a modelling decision
+  left open.
+- **The ride-time factor absorbs dwell, not just detour.** It is passenger in-vehicle time over the
+  unshared ride, and in-vehicle time includes every intermediate stop's `stopDuration` and any time
+  the vehicle stands. In the Kelheim test scenario vehicles drive only 8-20% farther than direct,
+  yet the mean factor is about 4, with a spread from 1.0 to 11. That is the right quantity for an
+  estimator to predict, but a largely additive cost is being modelled multiplicatively, so short
+  rides in a pair are over-predicted and long ones under-predicted. A `factor x direct + additive`
+  form would fit better; it is not done here.
+- **The direct-DRT estimator reports a rejection rate of zero.** The wait skim counts rejections
+  per zone and bin but does not yet publish a damped rate, so `SkimBackedDrtEstimator` leaves the
+  builder's default. Informed mode choice does not read the rate today; `estimateAndTeleport` would.
+- **Carried-forward values never expire.** A zone observed once and never again keeps that value for
+  the rest of the run. It is reported as `ZONE_TIME_BIN_CARRIED` rather than as fresh measurement,
+  but there is no staleness cutoff.
+- **Egress waits are looked up at the wrong time.** `DefaultRaptorStopFinder` passes the trip's
+  original departure time to the egress routing module and documents it as wrong; the leg carries
+  that time, so an egress wait on a long trip may be read from the wrong bin.
+- **The ride-time factor is a mean, and detour is not symmetric in its effects.** A pair whose rides
+  are usually direct but occasionally badly detoured is reported at its mean, so the skim understates
+  the tail exactly where sharing is worst. This is the same bias the wait skim carries for rejections.
+- **The package is named for the wait skim alone.** It now also carries the ride-time skim, and
+  `MultiModeDrtSkimsModule` installs both. Renaming the package and that module is worth doing
+  before this merges; it was left alone here to keep the review diff about behaviour.
+- **A zone system that does not cover the service area starves the skim.** Requests whose origin
+  falls outside it are counted and warned about at the end of each iteration, not silently dropped.
+- **Convergence is unmeasured.** The damping exists because undamped replacement is a known hazard,
+  not because any weight has been shown to converge.
+- **A user-supplied `RaptorIntermodalAccessEgress` is discarded.** The decorator wraps
+  `DefaultRaptorIntermodalAccessEgress` directly rather than the previously bound implementation.
+
+## Provenance
+
+The design — waiting as a first-class, separately-priced element of routing cost rather than
+something folded into travel time — comes from Sergio Ordóñez's `eventsBasedPTRouter` contrib
+(removed from matsim-libs in October 2023) and its later MaaS-router descendant, where waiting was an
+explicit link in the routing graph, priced with
+`ScoringConfigGroup.getMarginalUtlOfWaitingPt_utils_hr()`. That lineage is why this package uses the
+same scoring knob. The measurement is new: the DRT side of that earlier work filtered on transit leg
+modes and transit vehicle events, and never observed a DRT wait at all.
