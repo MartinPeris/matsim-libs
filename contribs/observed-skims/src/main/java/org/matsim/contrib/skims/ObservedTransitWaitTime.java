@@ -66,6 +66,8 @@ public final class ObservedTransitWaitTime implements TransitWaitTime, PersonDep
 		PersonEntersVehicleEventHandler, TransitDriverStartsEventHandler, VehicleArrivesAtFacilityEventHandler,
 		IterationEndsListener {
 
+	private static final double DAY = 24 * 3600.0;
+
 	private final double binSize;
 	private final int binCount;
 	private final double updateWeight;
@@ -153,6 +155,13 @@ public final class ObservedTransitWaitTime implements TransitWaitTime, PersonDep
 		double from = binStart;
 		while (from < binEnd) {
 			double next = nextArrivalAtOrAfter(sortedDepartures, stopOffset, from);
+			if (next < from) {
+				// nextArrivalAtOrAfter promises a value at or after `from`. If that promise is ever
+				// broken the loop below cannot terminate, so fail rather than hang: a spinning mobsim
+				// is far harder to diagnose than a stack trace.
+				throw new IllegalStateException(
+						"next arrival " + next + " precedes the query time " + from + "; this is a bug");
+			}
 			double to = Math.min(next, binEnd);
 			if (to <= from) {
 				// An arrival exactly at `from`: step past it so the walk cannot stall.
@@ -166,6 +175,17 @@ public final class ObservedTransitWaitTime implements TransitWaitTime, PersonDep
 		return integral / (binEnd - binStart);
 	}
 
+	/**
+	 * The first arrival at or after {@code time}, wrapping to a following service day when today's
+	 * services have all gone.
+	 * <p>
+	 * The wrap must be computed against {@code time}, not against midnight. A horizon that runs past
+	 * 24 h, which MATSim's default 30 h qsim end time does, can put {@code time} beyond tomorrow's
+	 * first service too; returning that earlier arrival would hand the caller a value in its past. The
+	 * integration loop then makes no progress and spins for ever. This is not hypothetical: it hung a
+	 * real scenario whose services start at 05:00, and no unit test caught it because the test schedule
+	 * ran to the end of the horizon.
+	 */
 	private static double nextArrivalAtOrAfter(double[] sortedDepartures, double stopOffset, double time) {
 		for (double departure : sortedDepartures) {
 			double arrival = departure + stopOffset;
@@ -173,7 +193,9 @@ public final class ObservedTransitWaitTime implements TransitWaitTime, PersonDep
 				return arrival;
 			}
 		}
-		return sortedDepartures[0] + 24 * 3600 + stopOffset;
+		double firstOfDay = sortedDepartures[0] + stopOffset;
+		double daysAhead = Math.ceil((time - firstOfDay) / DAY);
+		return firstOfDay + daysAhead * DAY;
 	}
 
 	@Override

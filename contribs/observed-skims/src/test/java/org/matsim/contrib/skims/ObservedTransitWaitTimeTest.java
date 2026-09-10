@@ -130,6 +130,23 @@ class ObservedTransitWaitTimeTest {
 		}
 	}
 
+	/**
+	 * The defect that hung a real scenario. A horizon running past 24 h can put a query beyond the next
+	 * day's first service as well as beyond today's last, and a wrap computed against midnight then
+	 * returns an arrival in the query's past, which the integration walks towards for ever.
+	 */
+	@Test
+	void aHorizonPastMidnightStillTerminatesAndAnswersSensibly() {
+		// Services only between 05:00 and 06:00, but a 30 h horizon, so most bins have none at all.
+		ObservedTransitWaitTime skim = new ObservedTransitWaitTime(scheduleBetween(5 * 3600, 6 * 3600), BIN,
+			30 * 3600.0, 1.0);
+
+		double lateWait = skim.waitTime(LINE, ROUTE, STOP_A, 29 * 3600.0);
+		assertTrue(Double.isFinite(lateWait), "must be finite");
+		assertTrue(lateWait > 0, "the next service is tomorrow morning, so the wait is long but real");
+		assertTrue(lateWait < 25 * 3600, "and less than a day: waiting past the following service is nonsense");
+	}
+
 	@Test
 	void anUnknownLineIsAnsweredWithoutInventingAWait() {
 		ObservedTransitWaitTime skim = skim(1.0);
@@ -176,8 +193,16 @@ class ObservedTransitWaitTimeTest {
 		skim.handleEvent(new PersonEntersVehicleEvent(boards, Id.createPersonId(person), VEH));
 	}
 
+	private static TransitSchedule scheduleBetween(int firstDeparture, int lastDeparture) {
+		return schedule(firstDeparture, lastDeparture);
+	}
+
 	/** Two stops, departures every 600 s from midnight to the end of the horizon. */
 	private static TransitSchedule schedule() {
+		return schedule(0, (int) END + 600);
+	}
+
+	private static TransitSchedule schedule(int firstDeparture, int lastDeparture) {
 		Scenario scenario = ScenarioUtils.createScenario(ConfigUtils.createConfig());
 		TransitSchedule schedule = scenario.getTransitSchedule();
 		TransitScheduleFactory f = schedule.getFactory();
@@ -193,8 +218,7 @@ class ObservedTransitWaitTimeTest {
 		TransitRouteStop stopA = f.createTransitRouteStopBuilder(a).departureOffset(0.0).build();
 		TransitRouteStop stopB = f.createTransitRouteStopBuilder(b).arrivalOffset(300.0).build();
 		TransitRoute route = f.createTransitRoute(ROUTE, null, List.of(stopA, stopB), TransportMode.pt);
-		// Past the horizon, so every bin has a service and no bin wraps to tomorrow.
-		for (int t = 0; t <= END + 600; t += 600) {
+		for (int t = firstDeparture; t <= lastDeparture; t += 600) {
 			Departure departure = f.createDeparture(Id.create("dep" + t, Departure.class), t);
 			departure.setVehicleId(VEH);
 			route.addDeparture(departure);
