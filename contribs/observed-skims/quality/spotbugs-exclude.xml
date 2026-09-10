@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Every entry must name a class and a pattern and say why. A blanket exclusion is a way of not
+  knowing what the tool found.
+-->
+<FindBugsFilter>
+</FindBugsFilter>

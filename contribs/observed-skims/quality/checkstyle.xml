@@ -1,0 +1,22 @@
+<?xml version="1.0"?>
+<!DOCTYPE module PUBLIC
+    "-//Checkstyle//DTD Checkstyle Configuration 1.3//EN"
+    "https://checkstyle.org/dtds/configuration_1_3.dtd">
+
+<!--
+  A deliberately low-noise lint gate, matching the one contribs/pseudosimulation established.
+  Add rules as violations are fixed. Do not remove or weaken a rule to make the gate pass:
+  a gate that is lowered whenever it fails measures nothing.
+-->
+<module name="Checker">
+  <property name="charset" value="UTF-8"/>
+
+  <module name="TreeWalker">
+    <module name="AvoidEscapedUnicodeCharacters"/>
+    <module name="EmptyStatement"/>
+    <module name="EqualsHashCode"/>
+    <module name="NoFinalizer"/>
+    <module name="OuterTypeFilename"/>
+    <module name="StringLiteralEquality"/>
+  </module>
+</module>
