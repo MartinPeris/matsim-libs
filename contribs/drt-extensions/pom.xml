@@ -12,6 +12,11 @@
 	<dependencies>
 		<dependency>
 			<groupId>org.matsim.contrib</groupId>
+			<artifactId>observed-skims</artifactId>
+			<version>${project.parent.version}</version>
+		</dependency>
+		<dependency>
+			<groupId>org.matsim.contrib</groupId>
 			<artifactId>drt</artifactId>
 			<version>${project.parent.version}</version>
 		</dependency>
