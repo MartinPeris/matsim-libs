@@ -23,8 +23,10 @@ import org.matsim.vehicles.Vehicle;
 
 import java.io.BufferedWriter;
 import java.util.Arrays;
+import java.util.BitSet;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.function.IntConsumer;
 
 /**
  * Tracks link-level parking occupancy during the mobsim and exposes capacity/occupancy
@@ -88,6 +90,14 @@ public class ParkingOccupancyObserver implements MobsimScopeEventHandler, Vehicl
 	private record ParkedVehicle(int index, boolean onStreet) {
 	}
 
+	/**
+	 * Indices of links whose on-street occupancy changed since {@link #drainOnStreetChanges} was last called, so a
+	 * consumer such as {@link KerbParkingCapacityEffect} need not scan every link every time step. Reporting only;
+	 * nothing in this class reads it.
+	 */
+	private final BitSet onStreetChanged = new BitSet();
+	private boolean anyOnStreetChanged = false;
+
 	double lastTimeStep = -1;
 
 	/**
@@ -138,6 +148,7 @@ public class ParkingOccupancyObserver implements MobsimScopeEventHandler, Vehicl
 		parkingOccupancy[index]--;
 		if (onStreet) {
 			onStreetOccupancy[index]--;
+			markOnStreetChanged(index);
 		} else {
 			offStreetOccupancy[index]--;
 			if (!kerbParkingPermitted[index] && nonParkableOccupancy[index] > 0) {
@@ -158,6 +169,7 @@ public class ParkingOccupancyObserver implements MobsimScopeEventHandler, Vehicl
 		boolean onStreet = onStreetOccupancy[index] < onStreetCapacity[index];
 		if (onStreet) {
 			onStreetOccupancy[index]++;
+			markOnStreetChanged(index);
 		} else {
 			offStreetOccupancy[index]++;
 			offStreetSpilloverEvents[index]++;
@@ -221,6 +233,9 @@ public class ParkingOccupancyObserver implements MobsimScopeEventHandler, Vehicl
 		unclaimedSeededOnStreet = new int[linkCount];
 		unclaimedSeededOffStreet = new int[linkCount];
 		parkedByVehicle.clear();
+		// Seeded occupancy is part of the initial state a consumer reads in full, not a change.
+		onStreetChanged.clear();
+		anyOnStreetChanged = false;
 
 		Map<Id<Link>, ParkingCapacityInitializer.ParkingInitialPools> initialPools = parkingCapacityInitializer.initializePools();
 		writeInitialParkingOccupancy(iteration, initialPools);
@@ -267,6 +282,45 @@ public class ParkingOccupancyObserver implements MobsimScopeEventHandler, Vehicl
 			result.put(linkId, new ParkingCount(occupancy, capacity[index], weight));
 		}
 		return result;
+	}
+
+	private void markOnStreetChanged(int index) {
+		onStreetChanged.set(index);
+		anyOnStreetChanged = true;
+	}
+
+	/**
+	 * Hands the index of every link whose on-street occupancy changed since the last call to {@code consumer}, then
+	 * forgets them. Called under this observer's lock, so the consumer sees a state no event handler is changing; it
+	 * may read the index-based getters below, which re-enter the same lock.
+	 */
+	synchronized void drainOnStreetChanges(IntConsumer consumer) {
+		if (!anyOnStreetChanged) {
+			return;
+		}
+		for (int i = onStreetChanged.nextSetBit(0); i >= 0; i = onStreetChanged.nextSetBit(i + 1)) {
+			consumer.accept(i);
+		}
+		onStreetChanged.clear();
+		anyOnStreetChanged = false;
+	}
+
+	/** Index of the link in the observer's arrays, or -1 if the observer does not know it. */
+	synchronized int indexOf(Id<Link> linkId) {
+		Integer index = indexByLinkId.get(linkId);
+		return index == null ? -1 : index;
+	}
+
+	synchronized int onStreetCapacityAt(int index) {
+		return onStreetCapacity[index];
+	}
+
+	synchronized int onStreetOccupancyAt(int index) {
+		return onStreetOccupancy[index];
+	}
+
+	synchronized boolean kerbParkingPermittedAt(int index) {
+		return kerbParkingPermitted[index];
 	}
 
 	synchronized int getOnStreetCapacity(Id<Link> linkId) {
