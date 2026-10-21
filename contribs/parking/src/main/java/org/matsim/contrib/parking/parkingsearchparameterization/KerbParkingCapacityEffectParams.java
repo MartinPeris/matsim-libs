@@ -35,8 +35,8 @@ import java.util.Locale;
  * @param updateIntervalSeconds how often factors are re-evaluated, at least 1 s
  * @param flowTolerance         how far the applied flow factor may lag behind {@code f} before flow capacity and lanes
  *                              are changed, in [0, 0.5). 0, the default, applies {@code f} exactly. A positive value
- *                              trades a bounded error in {@code f} for fewer capacity changes; see
- *                              {@link KerbParkingCapacityEffect} on why fewer changes can matter. The speed factor is
+ *                              trades a bounded error in {@code f} for fewer capacity changes, which mattered
+ *                              for outflow only with upstream core (see {@link KerbParkingCapacityEffect}). The speed factor is
  *                              always applied exactly, and a return to {@code s = 0} always restores the base.
  */
 public record KerbParkingCapacityEffectParams(EffectMode mode, double cellSizeMetres, double fMin, double w,
@@ -51,7 +51,8 @@ public record KerbParkingCapacityEffectParams(EffectMode mode, double cellSizeMe
 	public static final double DEFAULT_V = 0.2;
 	/**
 	 * One minute: well below the hours a car typically stays parked, and long enough that a link is not re-evaluated
-	 * every second; see {@link KerbParkingCapacityEffect} on why frequent changes matter.
+	 * every second. With the fork's patched {@code QueueWithBuffer} the interval no longer controls a leak of outflow
+	 * (see {@link KerbParkingCapacityEffect}); it bounds the number of change events and the lag.
 	 */
 	public static final double DEFAULT_UPDATE_INTERVAL_SECONDS = 60.0;
 	public static final double DEFAULT_FLOW_TOLERANCE = 0.0;

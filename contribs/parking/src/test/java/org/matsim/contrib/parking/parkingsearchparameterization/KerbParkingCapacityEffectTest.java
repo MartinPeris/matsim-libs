@@ -358,6 +358,9 @@ class KerbParkingCapacityEffectTest {
 		config.eventsManager().setNumberOfThreads(2);
 		config.eventsManager().setSynchronizeOnSimSteps(false);
 		assertThrows(IllegalStateException.class, () -> KerbParkingCapacityEffect.checkPreconditions(config, link), "events not synchronised on steps");
+		// null is allowed by the setter and makes EventsManagerModule bind the unsynchronised ParallelEventsManagerImpl
+		config.eventsManager().setSynchronizeOnSimSteps(null);
+		assertThrows(IllegalStateException.class, () -> KerbParkingCapacityEffect.checkPreconditions(config, link), "synchronizeOnSimSteps null means unsynchronised");
 		config.eventsManager().setSynchronizeOnSimSteps(true);
 		KerbParkingCapacityEffect.checkPreconditions(config, link);
 		config.eventsManager().setOneThreadPerHandler(true);

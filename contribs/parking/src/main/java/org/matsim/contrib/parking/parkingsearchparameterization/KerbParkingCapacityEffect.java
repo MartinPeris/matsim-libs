@@ -79,19 +79,39 @@ import java.util.Map;
  * <li>number of lanes {@code baseLanes * f}. {@code QueueWithBuffer.calculateStorageCapacity} turns it into storage as
  * {@code length * lanes / cellSize * storageCapacityFactor}, again applying the sample factor itself. Under
  * {@code kinematicWaves} the lanes also set the inflow capacity from the fundamental diagram;</li>
- * <li>free speed {@code baseFreespeed * g} in m/s. The QSim pulls free speed per vehicle when it enters the link, so
- * a vehicle already on the link keeps the speed it entered with.</li>
+ * <li>free speed {@code baseFreespeed * g} in m/s. The QSim pulls free speed per vehicle when it enters the link
+ * (through the link speed calculator), so a vehicle already on the link keeps the speed it entered with.</li>
  * </ul>
- * <h2>Why updates are not every second</h2>
- * {@code QueueWithBuffer.recalcTimeVariantAttributes} sets the link's accumulated outflow capacity to one full time
- * step's worth whenever a capacity or lanes change arrives. At a 1% or 10% sample a link earns well under one vehicle of
- * outflow per second, so after each departing vehicle the accumulator is negative for tens or hundreds of seconds;
- * the recalculation forgives that debt and lets the next queued vehicle out at once. Each change event can therefore
- * release at most one extra vehicle from a link that has a queue. Re-evaluating every second would, on a congested
- * link in a busy cell, add more outflow than the reduction removes. Three things bound it: the update interval (at most
- * one change per link per interval); events that change only the free speed, which need no recalculation and are
- * issued without one; and the optional {@code flowTolerance}, which skips capacity changes smaller than itself. The
- * {@code capacityChangeEvents} columns of the outputs count the changes that can have released an extra vehicle.
+ * <h2>What the speed factor does not reach</h2>
+ * {@code QueueWithBuffer} computes storage from the base free speed, not the current one: the free-speed travel time
+ * that sets the minimum storage, the minimum storage the holes need, and, under {@code kinematicWaves}, the maximum
+ * inflow from the fundamental diagram all call the no-argument {@code getFreespeed()}. So {@code g} lengthens travel
+ * times on the link but never changes its storage or inflow capacity; only {@code f}, through flow capacity and lanes,
+ * does.
+ * <h2>Outflow accumulator and the core patch</h2>
+ * Upstream MATSim's {@code QueueWithBuffer.recalcTimeVariantAttributes} set the link's accumulated outflow capacity to
+ * one full time step whenever a capacity or lanes change arrived. At a 1% or 10% sample a link earns well under one
+ * vehicle of outflow per second, so after each departing vehicle the accumulator is negative for tens of seconds; the
+ * reset forgave that debt and let the next queued vehicle out at once. In the bottleneck integration test
+ * ({@code KerbParkingCapacityEffectIntegrationTest}) that kept only about half the intended reduction at the default
+ * 60 s interval and turned it into an increase at 1 s. This fork patches the method to keep the debt (and, in
+ * {@code calculateStorageCapacity}, to shift the holes ledger by the change in storage instead of resetting it), after
+ * which the test achieves the intended reduction at every interval. This class therefore needs the fork's core; with
+ * upstream core the effect on queued links is weaker than specified. The update interval, speed-only events (which
+ * need no recalculation and are issued without one) and the optional {@code flowTolerance} still limit the number of
+ * recalculations; the {@code capacityChangeEvents} columns of the outputs count them.
+ * <h2>Output network</h2>
+ * Each recalculation makes {@code QueueWithBuffer} write {@code storageCapacityUsedInQsim} and
+ * {@code maxInflowUsedInQsim} link attributes when it raises storage or caps inflow, and the restoration at the end of
+ * the mobsim does not remove them. The output network of an effect run therefore carries values from each link's last
+ * change. Do not compare these attributes between runs with the effect off and on.
+ * <h2>Start of the day</h2>
+ * The effect starts from the occupancy the observer is seeded with. {@link DerivedParkingCapacityInitializer}, which
+ * {@code RunKerbFirstParking} uses, seeds none, so every kerb starts the day empty and the shares, and with them the
+ * effect, build up through the morning: in the Berlin 1% cell-mode smoke run the lane-km-weighted mean share was
+ * about 0.00004 from 00:00 to 01:00 and 0.010 from 07:00 to 08:00, against 0.044 at the end of the day. Morning-peak
+ * effects are therefore understated relative to a city whose cars are already parked overnight. No overnight seeding
+ * exists for the effect yet.
  * <h2>Outputs</h2>
  * Per iteration, copied to the output directory at shutdown:
  * <ul>
@@ -203,8 +223,10 @@ public class KerbParkingCapacityEffect implements StartupListener, IterationEnds
 			throw new IllegalStateException("the kerb parking capacity effect needs a time-variant network: call config.network().setTimeVariantNetwork(true) before the scenario is loaded (RunKerbFirstParking does this)");
 		}
 		EventsManagerConfigGroup em = config.eventsManager();
+		// With numberOfThreads set, EventsManagerModule binds the step-synchronised manager only if
+		// synchronizeOnSimSteps is true; null (which the setter allows) gives the unsynchronised ParallelEventsManagerImpl.
 		boolean unsynchronised = Boolean.TRUE.equals(em.getOneThreadPerHandler())
-			|| (em.getNumberOfThreads() != null && Boolean.FALSE.equals(em.getSynchronizeOnSimSteps()));
+			|| (em.getNumberOfThreads() != null && !Boolean.TRUE.equals(em.getSynchronizeOnSimSteps()));
 		if (unsynchronised) {
 			throw new IllegalStateException("the kerb parking capacity effect reads parking occupancy at the start of each time step and needs every event of the previous step handled by then; use an events manager that synchronises on sim steps (eventsManager.synchronizeOnSimSteps=true, oneThreadPerHandler=false)");
 		}

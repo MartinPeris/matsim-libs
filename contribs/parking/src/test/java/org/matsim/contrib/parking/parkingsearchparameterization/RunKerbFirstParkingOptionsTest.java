@@ -9,6 +9,7 @@ import org.matsim.api.core.v01.network.Node;
 import org.matsim.contrib.parking.parkingsearchparameterization.KerbParkingCapacityEffectParams.EffectMode;
 import org.matsim.core.network.NetworkUtils;
 
+import java.util.List;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -60,6 +61,23 @@ class RunKerbFirstParkingOptionsTest {
 		assertThrows(IllegalArgumentException.class, () -> RunKerbFirstParking.Options.parse(new String[]{"c.xml", "out", "--effectMode"}));
 		assertThrows(IllegalArgumentException.class, () -> RunKerbFirstParking.Options.parse(new String[]{"c.xml", "out", "--effectMode=everywhere"}));
 		assertThrows(IllegalArgumentException.class, () -> RunKerbFirstParking.Options.parse(new String[]{"c.xml", "out", "--fMin=2"}));
+		IllegalArgumentException badMode = assertThrows(IllegalArgumentException.class,
+			() -> RunKerbFirstParking.Options.parse(new String[]{"c.xml", "out", "--effectMode=everywhere"}));
+		assertTrue(badMode.getMessage().contains("everywhere") && badMode.getMessage().contains(RunKerbFirstParking.USAGE), badMode.getMessage());
+	}
+
+	@Test
+	void effectOptionsWithTheEffectOffAreWarnedAbout() {
+		assertEquals(null, RunKerbFirstParking.ignoredEffectOptionsWarning(EffectMode.off, List.of()));
+		assertEquals(null, RunKerbFirstParking.ignoredEffectOptionsWarning(EffectMode.cell, List.of("--cellSize")));
+		String one = RunKerbFirstParking.ignoredEffectOptionsWarning(EffectMode.off, List.of("--cellSize"));
+		assertTrue(one.startsWith("--cellSize given") && one.contains("effect is off"), one);
+		String two = RunKerbFirstParking.ignoredEffectOptionsWarning(EffectMode.off, List.of("--w", "--v"));
+		assertTrue(two.startsWith("--w, --v given") && two.contains("they have no effect"), two);
+		// parsing still succeeds: the warning is a warning
+		RunKerbFirstParking.Options o = RunKerbFirstParking.Options.parse(new String[]{"c.xml", "out", "--cellSize=250"});
+		assertEquals(EffectMode.off, o.effect().mode());
+		assertEquals(Set.of("cellSize", "fMin", "w", "sMin", "v", "updateInterval", "flowTolerance"), RunKerbFirstParking.EFFECT_PARAMETER_OPTIONS);
 	}
 
 	@Test

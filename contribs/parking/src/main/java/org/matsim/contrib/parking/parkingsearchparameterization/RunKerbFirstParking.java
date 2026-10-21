@@ -67,6 +67,7 @@ public final class RunKerbFirstParking {
 			double updateInterval = KerbParkingCapacityEffectParams.DEFAULT_UPDATE_INTERVAL_SECONDS;
 			double flowTolerance = KerbParkingCapacityEffectParams.DEFAULT_FLOW_TOLERANCE;
 			Set<String> banned = new HashSet<>();
+			List<String> effectOptionsGiven = new ArrayList<>();
 			for (String arg : args) {
 				if (!arg.startsWith("--")) {
 					positional.add(arg);
@@ -78,8 +79,11 @@ public final class RunKerbFirstParking {
 				}
 				String key = arg.substring(2, eq);
 				String value = arg.substring(eq + 1);
+				if (EFFECT_PARAMETER_OPTIONS.contains(key)) {
+					effectOptionsGiven.add("--" + key);
+				}
 				switch (key) {
-					case "effectMode" -> mode = EffectMode.valueOf(value.trim().toLowerCase(Locale.ROOT));
+					case "effectMode" -> mode = parseMode(value);
 					case "cellSize" -> cellSize = Double.parseDouble(value);
 					case "fMin" -> fMin = Double.parseDouble(value);
 					case "w" -> w = Double.parseDouble(value);
@@ -100,6 +104,10 @@ public final class RunKerbFirstParking {
 			int iterations = positional.size() > 2 ? Integer.parseInt(positional.get(2)) : 0;
 			double minimumLanes = positional.size() > 3 ? Double.parseDouble(positional.get(3)) : KerbParkingEligibility.MinimumLanes.DEFAULT_MINIMUM_LANES;
 			double bayLength = positional.size() > 4 ? Double.parseDouble(positional.get(4)) : KerbParkingSupplyParams.DEFAULT_BAY_LENGTH_METRES;
+			String warning = ignoredEffectOptionsWarning(mode, effectOptionsGiven);
+			if (warning != null) {
+				log.warn(warning);
+			}
 			return new Options(positional.get(0), positional.get(1), iterations, minimumLanes, bayLength, Set.copyOf(banned),
 				new KerbParkingCapacityEffectParams(mode, cellSize, fMin, w, sMin, v, updateInterval, flowTolerance));
 		}
@@ -116,7 +124,28 @@ public final class RunKerbFirstParking {
 		}
 	}
 
-	static final String USAGE = "usage: <config.xml> <outputDir> [iterations=0] [minimumLanes=1] [bayLengthMetres=6] "
+	/** Options that only matter when the effect is on; giving one with mode off is warned about. */
+	static final Set<String> EFFECT_PARAMETER_OPTIONS = Set.of("cellSize", "fMin", "w", "sMin", "v", "updateInterval", "flowTolerance");
+
+	/** The warning for effect options given with the effect off, or null if there is nothing to warn about. */
+	static String ignoredEffectOptionsWarning(EffectMode mode, List<String> effectOptionsGiven) {
+		if (mode != EffectMode.off || effectOptionsGiven.isEmpty()) {
+			return null;
+		}
+		return String.join(", ", effectOptionsGiven) + " given, but the capacity effect is off (--effectMode=off is the default), so "
+			+ (effectOptionsGiven.size() == 1 ? "it has" : "they have") + " no effect; add --effectMode=link or --effectMode=cell to use "
+			+ (effectOptionsGiven.size() == 1 ? "it" : "them");
+	}
+
+	static EffectMode parseMode(String value) {
+		try {
+			return EffectMode.valueOf(value.trim().toLowerCase(Locale.ROOT));
+		} catch (IllegalArgumentException e) {
+			throw new IllegalArgumentException("unknown --effectMode=" + value + ", expected off, link or cell; " + USAGE, e);
+		}
+	}
+
+	static final String USAGE ="usage: <config.xml> <outputDir> [iterations=0] [minimumLanes=1] [bayLengthMetres=6] "
 		+ "[--effectMode=off|link|cell] [--cellSize=300] [--fMin=0.5] [--w=0.5] [--sMin=0.7] [--v=0.2] [--updateInterval=60] "
 		+ "[--flowTolerance=0] [--banKerbParkingOn=primary,secondary]";
 
