@@ -180,6 +180,30 @@ class KerbParkingCapacityEffectIntegrationTest {
 	}
 
 	/**
+	 * Lanes set storage. With {@code trafficDynamics = queue} a link holds {@code length * lanes / 7.5 *
+	 * storageCapacityFactor} vehicles ({@code QueueWithBuffer.calculateStorageCapacity}): for a 75 m, one-lane street at
+	 * a 0.5 sample that is 5 with the effect off and, with a full kerb ({@code f = 0.5}), 2.5 with it on. The street
+	 * accepts a vehicle while its used storage is below that, so its queue holds 5 off and 3 on, and one more car
+	 * waits in the buffer, which does not count against storage ({@code QueueWithBuffer.removeVehicleFromQueue}):
+	 * 6 and 4 cars on the link at most. A nearly closed {@code out} link backs the 20-car platoon up so the street
+	 * fills.
+	 * <p>
+	 * If the effect applied the sample factor itself, on would hold 2 + 1 (1.25 rounded up, plus the buffer); if it
+	 * did not change lanes at all, 6. Under {@code kinematicWaves}, the Berlin setting, storage is usually raised to the minimum the holes need,
+	 * which is proportional to the flow capacity per time step and therefore scales with {@code f} too
+	 * ({@code QueueWithBuffer.calculateStorageCapacity}, the {@code minStorCapForHoles} branch).
+	 */
+	@Test
+	void parkedCarsReduceStorageThroughLanes() {
+		Layout layout = new Layout(75, QSimConfigGroup.TrafficDynamics.queue, 15, 36, 1);
+		StreetRun off = runStreet("storage-off", KerbParkingCapacityEffectParams.off(), 0.5, 4, 0, linkModeAgents(), layout);
+		StreetRun on = runStreet("storage-on", KerbParkingCapacityEffectParams.defaults(EffectMode.link), 0.5, 4, 0, linkModeAgents(), layout);
+		log.info("most through cars on the 75 m street at once: {} off, {} on", off.observer().maxThroughOnStreet, on.observer().maxThroughOnStreet);
+		assertEquals(6, off.observer().maxThroughOnStreet);
+		assertEquals(4, on.observer().maxThroughOnStreet);
+	}
+
+	/**
 	 * A queue on {@code street} while cars park one by one on {@code plink}, in the same cell. Each capacity change
 	 * on {@code street} resets its outflow accumulator in {@code QueueWithBuffer.recalcTimeVariantAttributes}, which
 	 * can release a queued vehicle early. This test measures that and checks it stays within its bound: the extra
@@ -254,8 +278,19 @@ class KerbParkingCapacityEffectIntegrationTest {
 	 * loop, because the router requires a strongly connected network. Kerb parking only where an
 	 * {@code onstreet_spots} attribute is given.
 	 */
+	/** Geometry of the main road and the traffic dynamics; the side road is fixed. */
+	private record Layout(double streetLength, QSimConfigGroup.TrafficDynamics dynamics, double outLength, double outCapacity,
+						  double outLanes) {
+		static final Layout DEFAULT = new Layout(1000, QSimConfigGroup.TrafficDynamics.kinematicWaves, 100, 36000, 4);
+	}
+
 	private StreetRun runStreet(String name, KerbParkingCapacityEffectParams effect, double sample, int streetKerb,
 								int plinkKerb, AgentSpec agents) {
+		return runStreet(name, effect, sample, streetKerb, plinkKerb, agents, Layout.DEFAULT);
+	}
+
+	private StreetRun runStreet(String name, KerbParkingCapacityEffectParams effect, double sample, int streetKerb,
+								int plinkKerb, AgentSpec agents, Layout layout) {
 		String dir = utils.getOutputDirectory() + name + "/";
 		Config config = ConfigUtils.createConfig();
 		config.controller().setOutputDirectory(dir);
@@ -266,7 +301,7 @@ class KerbParkingCapacityEffectIntegrationTest {
 		config.routing().setAccessEgressConsistencyCheck(RoutingConfigGroup.AccessEgressConsistencyCheck.disable);
 		config.qsim().setFlowCapFactor(sample);
 		config.qsim().setStorageCapFactor(sample);
-		config.qsim().setTrafficDynamics(QSimConfigGroup.TrafficDynamics.kinematicWaves);
+		config.qsim().setTrafficDynamics(layout.dynamics());
 		config.qsim().setStuckTime(36000);
 		config.qsim().setEndTime(12 * 3600);
 		for (String type : List.of("home", "work")) {
@@ -281,14 +316,14 @@ class KerbParkingCapacityEffectIntegrationTest {
 		Network network = scenario.getNetwork();
 		Node n0 = NetworkUtils.createAndAddNode(network, Id.createNodeId("n0"), new Coord(0, 0));
 		Node n1 = NetworkUtils.createAndAddNode(network, Id.createNodeId("n1"), new Coord(100, 0));
-		Node n2 = NetworkUtils.createAndAddNode(network, Id.createNodeId("n2"), new Coord(1100, 0));
-		Node n3 = NetworkUtils.createAndAddNode(network, Id.createNodeId("n3"), new Coord(1200, 0));
+		Node n2 = NetworkUtils.createAndAddNode(network, Id.createNodeId("n2"), new Coord(100 + layout.streetLength(), 0));
+		Node n3 = NetworkUtils.createAndAddNode(network, Id.createNodeId("n3"), new Coord(100 + layout.streetLength() + layout.outLength(), 0));
 		Node m0 = NetworkUtils.createAndAddNode(network, Id.createNodeId("m0"), new Coord(0, 100));
 		Node m1 = NetworkUtils.createAndAddNode(network, Id.createNodeId("m1"), new Coord(100, 100));
 		Node m2 = NetworkUtils.createAndAddNode(network, Id.createNodeId("m2"), new Coord(1100, 100));
 		NetworkUtils.createAndAddLink(network, Id.createLinkId("in"), n0, n1, 100, 10, 36000, 4);
-		Link street = NetworkUtils.createAndAddLink(network, Id.createLinkId("street"), n1, n2, 1000, 10, 1800, 1);
-		NetworkUtils.createAndAddLink(network, Id.createLinkId("out"), n2, n3, 100, 10, 36000, 4);
+		Link street = NetworkUtils.createAndAddLink(network, Id.createLinkId("street"), n1, n2, layout.streetLength(), 10, 1800, 1);
+		NetworkUtils.createAndAddLink(network, Id.createLinkId("out"), n2, n3, layout.outLength(), 10, layout.outCapacity(), layout.outLanes());
 		NetworkUtils.createAndAddLink(network, Id.createLinkId("pin"), m0, m1, 100, 10, 36000, 4);
 		Link plink = NetworkUtils.createAndAddLink(network, Id.createLinkId("plink"), m1, m2, 1000, 10, 36000, 4);
 		// Closing the loop so the car network is strongly connected; no route uses these.
@@ -317,11 +352,17 @@ class KerbParkingCapacityEffectIntegrationTest {
 		final Map<String, Double> enter = new HashMap<>();
 		final Map<String, Double> leave = new HashMap<>();
 		final List<Double> parkedOnPlink = new ArrayList<>();
+		int throughOnStreet = 0;
+		int maxThroughOnStreet = 0;
 
 		@Override
 		public void handleEvent(LinkEnterEvent event) {
 			if (event.getLinkId().toString().equals("street")) {
 				enter.put(event.getVehicleId().toString(), event.getTime());
+				if (event.getVehicleId().toString().startsWith("through")) {
+					throughOnStreet++;
+					maxThroughOnStreet = Math.max(maxThroughOnStreet, throughOnStreet);
+				}
 			}
 		}
 
@@ -329,6 +370,9 @@ class KerbParkingCapacityEffectIntegrationTest {
 		public void handleEvent(LinkLeaveEvent event) {
 			if (event.getLinkId().toString().equals("street")) {
 				leave.put(event.getVehicleId().toString(), event.getTime());
+				if (event.getVehicleId().toString().startsWith("through")) {
+					throughOnStreet--;
+				}
 			}
 		}
 
