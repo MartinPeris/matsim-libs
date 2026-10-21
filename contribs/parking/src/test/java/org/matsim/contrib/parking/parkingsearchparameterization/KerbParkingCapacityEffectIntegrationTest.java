@@ -120,8 +120,61 @@ class KerbParkingCapacityEffectIntegrationTest {
 		assertFalse(new File(off + "ITERS/it.0/0." + KerbParkingCapacityEffect.NETWORK_FILE).exists(), "mode off binds nothing");
 	}
 
+	/**
+	 * The control for every effect result: the effect bound, the network time-variant and the change-events engine
+	 * running, but {@code w = 0} and {@code v = 0}, so {@code f = g = 1} and no change event is ever issued. Its
+	 * outputs must be byte-identical to mode off; otherwise a difference between an effect run and an off run could
+	 * come from the wiring rather than from parked cars. Equil with 100 agents, who queue on the way to work. A third
+	 * run with the default parameters shows the comparison can see a difference.
+	 */
+	@Test
+	void effectWithZeroWeightsWritesByteIdenticalOutputsToEffectOff() throws IOException {
+		String off = utils.getOutputDirectory() + "off/";
+		String zero = utils.getOutputDirectory() + "zero/";
+		String on = utils.getOutputDirectory() + "on/";
+		KerbParkingCapacityEffectParams zeroWeights = new KerbParkingCapacityEffectParams(EffectMode.cell, 300, 0.5, 0.0, 0.7, 0.0, 60);
+
+		Controller a = equilController(off, "config.xml", false);
+		RunKerbFirstParking.install(a, new KerbParkingEligibility.MinimumLanes(1.0), KerbParkingSupplyParams.defaults(),
+			KerbParkingCapacityEffectParams.off(), 1);
+		a.run();
+		Controller b = equilController(zero, "config.xml", true);
+		RunKerbFirstParking.install(b, new KerbParkingEligibility.MinimumLanes(1.0), KerbParkingSupplyParams.defaults(), zeroWeights, 1);
+		b.run();
+		Controller c = equilController(on, "config.xml", true);
+		RunKerbFirstParking.install(c, new KerbParkingEligibility.MinimumLanes(1.0), KerbParkingSupplyParams.defaults(),
+			KerbParkingCapacityEffectParams.defaults(EffectMode.cell), 1);
+		c.run();
+
+		String effectNetwork = "ITERS/it.0/0." + KerbParkingCapacityEffect.NETWORK_FILE;
+		assertTrue(new File(zero + effectNetwork).exists(), "the zero-weight effect is bound and writes its report");
+		StreetRun zeroRun = new StreetRun(zero, new StreetObserver(), zeroWeights);
+		assertEquals(0, zeroRun.changeEvents(), "w = 0 and v = 0 issue no change events");
+		for (String file : List.of("ITERS/it.0/0." + ParkingSpilloverReport.PER_LINK_FILE,
+			"ITERS/it.0/0." + ParkingSpilloverReport.NETWORK_FILE,
+			"ITERS/it.0/0." + ParkingUtils.PARKING_INITIAL_FILE,
+			"output_events.xml.gz",
+			"output_legs.csv.gz",
+			"output_trips.csv.gz")) {
+			String x = slurp(off + file);
+			String y = slurp(zero + file);
+			assertTrue(x.length() > 100, file + " is too short to be a meaningful comparison");
+			assertEquals(x, y, file + " differs between effect off and the effect with w = 0, v = 0");
+		}
+
+		StreetRun onRun = new StreetRun(on, new StreetObserver(), KerbParkingCapacityEffectParams.defaults(EffectMode.cell));
+		assertTrue(onRun.changeEvents() > 0, "the default effect issues change events on equil");
+		assertFalse(slurp(off + "output_events.xml.gz").equals(slurp(on + "output_events.xml.gz")),
+			"the default effect changes the events, so the identity above is not trivial");
+	}
+
 	private Controller equilController(String outputDirectory) {
-		Config config = ConfigUtils.loadConfig(IOUtils.extendUrl(ExamplesUtils.getTestScenarioURL("equil"), "config_plans1.xml"));
+		return equilController(outputDirectory, "config_plans1.xml", false);
+	}
+
+	private Controller equilController(String outputDirectory, String configFile, boolean timeVariantNetwork) {
+		Config config = ConfigUtils.loadConfig(IOUtils.extendUrl(ExamplesUtils.getTestScenarioURL("equil"), configFile));
+		config.network().setTimeVariantNetwork(timeVariantNetwork);
 		config.controller().setOutputDirectory(outputDirectory);
 		config.controller().setOverwriteFileSetting(OutputDirectoryHierarchy.OverwriteFileSetting.deleteDirectoryIfExists);
 		config.controller().setLastIteration(0);
@@ -204,17 +257,31 @@ class KerbParkingCapacityEffectIntegrationTest {
 	}
 
 	/**
-	 * A queue on {@code street} while cars park one by one on {@code plink}, in the same cell. Each capacity change
-	 * on {@code street} resets its outflow accumulator in {@code QueueWithBuffer.recalcTimeVariantAttributes}, which
-	 * can release a queued vehicle early. This test measures that and checks it stays within its bound: the extra
-	 * vehicles over what the applied capacity alone allows is at most the number of capacity changes.
+	 * A queue on {@code street} while cars park one by one on {@code plink}, in the same cell, so {@code street}
+	 * receives a capacity change at almost every update.
 	 * <p>
 	 * At a 10% sample the street's 1800 veh/h is 180 veh/h, one car per 20 s with the effect off. Sixty cars park on
 	 * {@code plink} 30 s apart from 07:00 (60 scaled kerb spaces), so the cell's share rises from 0 to 1 over 30 min
 	 * and {@code f} from 1 to 0.5.
+	 * <p>
+	 * Before the fork patched {@code QueueWithBuffer.recalcTimeVariantAttributes}, every capacity change reset the
+	 * street's outflow accumulator to one full time step, forgiving the debt left by the last departing vehicle and
+	 * releasing the next queued one early. With the defaults (60 s, tolerance 0) that gave 76 vehicles against 90 off
+	 * and 63.3 allowed, i.e. only about 52% of the intended reduction, and re-evaluating every second gave 92, more
+	 * than off (logs/mvn-test-review.log in the parking-mfd project). The patch keeps the debt. This test asserts that
+	 * the reduction achieved, {@code off - on}, is between 80% and 120% of the intended one, {@code off - allowed}, for
+	 * every setting including the one-second interval, and that the excess over the allowed count is no more than
+	 * {@code street}'s own number of capacity changes.
+	 * <p>
+	 * With the patch the four settings (60 s, 60 s with tolerance 0.05, 300 s, 1 s) give 61, 62, 63 and 60 vehicles,
+	 * 105 to 113% of the intended reduction. The 1 to 3 vehicles below the allowed count appear only together with the
+	 * second half of the patch, which stops {@code calculateStorageCapacity} resetting the holes ledger: with the flow
+	 * fix alone the counts were 64, 66, 66 and 63 (90 to 101%). The likely cause, not traced in detail, is that under
+	 * {@code kinematicWaves} the street's storage is sized at the minimum the holes need to sustain capacity, so after
+	 * each cut in storage the holes still in transit, created at the old rate, block inflow for a while.
 	 */
 	@Test
-	void capacityChangesOnAQueuedLinkStayWithinTheirBound() {
+	void capacityChangesOnAQueuedLinkDeliverTheIntendedReduction() {
 		AgentSpec agents = population -> {
 			for (int i = 0; i < 60; i++) {
 				addTrip(population, "parker_" + i, "pin", "plink", 7 * 3600 + 30 * i);
@@ -232,24 +299,32 @@ class KerbParkingCapacityEffectIntegrationTest {
 		log.info("bottleneck: effect off: {} vehicles left street in the window", throughputOff);
 		assertEquals(90, throughputOff, 2, "30 min at 180 veh/h");
 
-		// Re-evaluating every second lets the resets win: more traffic gets through than with no effect at all. This is
-		// the reason for the update interval and is recorded here, not asserted, as it is a property of the QSim.
-		StreetRun everySecond = runStreet("cell-u1", cell.withUpdateIntervalSeconds(1), 0.1, 0, 600, agents);
-		log.info("bottleneck: cell-u1: {} vehicles left street ({} capacity changes)", everySecond.leftStreetBetween(windowStart, windowEnd),
-			everySecond.capacityChangeEvents());
-
-		for (KerbParkingCapacityEffectParams p : List.of(cell, cell.withFlowTolerance(0.05), cell.withUpdateIntervalSeconds(300))) {
+		List<String> failures = new ArrayList<>();
+		for (KerbParkingCapacityEffectParams p : List.of(cell, cell.withFlowTolerance(0.05), cell.withUpdateIntervalSeconds(300),
+			cell.withUpdateIntervalSeconds(1))) {
 			String name = "cell-u" + (int) p.updateIntervalSeconds() + "-tol" + p.flowTolerance();
 			StreetRun on = runStreet(name, p, 0.1, 0, 600, agents);
 			int throughput = on.leftStreetBetween(windowStart, windowEnd);
 			double allowed = on.capacityAllowedBetween(windowStart, windowEnd, 1800.0 / 3600 * 0.1);
-			long capacityChanges = on.capacityChangeEvents();
-			log.info("bottleneck: {}: {} vehicles left street; applied capacity allows {}; {} change events, {} changing capacity; excess {}",
-				name, throughput, String.format("%.1f", allowed), on.changeEvents(), capacityChanges, String.format("%.1f", throughput - allowed));
-			assertTrue(throughput - allowed <= capacityChanges + 2,
-				name + ": " + throughput + " vehicles, applied capacity allows " + allowed + ", only " + capacityChanges + " capacity changes to explain the excess");
-			assertTrue(throughput < throughputOff, name + ": the effect must not let more through than no effect");
+			long streetCapacityChanges = on.linkCapacityChangeEvents("street");
+			double intended = throughputOff - allowed;
+			double achieved = throughputOff - throughput;
+			log.info("bottleneck: {}: {} vehicles left street; applied capacity allows {}; street had {} capacity changes ({} in the cell); excess {}; achieved {}% of the intended reduction",
+				name, throughput, String.format("%.1f", allowed), streetCapacityChanges, on.capacityChangeEvents(),
+				String.format("%.1f", throughput - allowed), String.format("%.0f", 100 * achieved / intended));
+			assertTrue(intended > 20, name + ": the scenario must ask for a substantial reduction, got " + intended);
+			if (throughput - allowed > streetCapacityChanges + 2) {
+				failures.add(name + ": " + throughput + " vehicles, applied capacity allows " + allowed + ", but street had only "
+					+ streetCapacityChanges + " capacity changes to explain the excess");
+			}
+			if (achieved < 0.8 * intended) {
+				failures.add(name + ": achieved reduction " + achieved + " is below 80% of the intended " + String.format("%.1f", intended));
+			}
+			if (achieved > 1.2 * intended) {
+				failures.add(name + ": achieved reduction " + achieved + " is above 120% of the intended " + String.format("%.1f", intended));
+			}
 		}
+		assertTrue(failures.isEmpty(), String.join("\n", failures));
 	}
 
 	// ---- scenario ----
@@ -431,6 +506,23 @@ class KerbParkingCapacityEffectIntegrationTest {
 
 		long capacityChangeEvents() {
 			return sumColumn(11);
+		}
+
+		/** One link's own capacity-changing events, from the per-link output; 0 if it received none. */
+		long linkCapacityChangeEvents(String linkId) {
+			File file = new File(dir + "ITERS/it.0/0." + KerbParkingCapacityEffect.PER_LINK_FILE);
+			if (!file.exists()) {
+				return 0;
+			}
+			try (BufferedReader reader = IOUtils.getBufferedReader(file.getPath())) {
+				List<String> header = List.of(reader.readLine().split(";"));
+				int idColumn = header.indexOf("linkId");
+				int column = header.indexOf("capacityChangeEvents");
+				return reader.lines().map(l -> l.split(";")).filter(r -> r[idColumn].equals(linkId))
+					.mapToLong(r -> Long.parseLong(r[column])).sum();
+			} catch (IOException e) {
+				throw new RuntimeException(e);
+			}
 		}
 
 		private long sumColumn(int column) {
