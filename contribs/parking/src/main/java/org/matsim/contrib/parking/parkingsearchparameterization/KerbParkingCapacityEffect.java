@@ -93,11 +93,11 @@ import java.util.Map;
  * one full time step whenever a capacity or lanes change arrived. At a 1% or 10% sample a link earns well under one
  * vehicle of outflow per second, so after each departing vehicle the accumulator is negative for tens of seconds; the
  * reset forgave that debt and let the next queued vehicle out at once. In the bottleneck integration test
- * ({@code KerbParkingCapacityEffectIntegrationTest}) that kept only about half the intended reduction at the default
- * 60 s interval and turned it into an increase at 1 s. This fork patches the method to keep the debt (and, in
- * {@code calculateStorageCapacity}, to shift the holes ledger by the change in storage instead of resetting it), after
- * which the test achieves the intended reduction at every interval. This class therefore needs the fork's core; with
- * upstream core the effect on queued links is weaker than specified. The update interval, speed-only events (which
+ * ({@code KerbParkingCapacityEffectIntegrationTest}) that kept only 52% of the intended reduction at the default 60 s
+ * interval and turned it into an increase at 1 s. This fork patches the method to keep the debt (and, in
+ * {@code calculateStorageCapacity}, to shift the holes ledger by the change in storage instead of resetting it),
+ * after which the test achieves 105 to 113% of the intended reduction (it asserts 80 to 120%). It needs the fork's core;
+ * with upstream core the effect on queued links is weaker than specified. The update interval, speed-only events (which
  * need no recalculation and are issued without one) and the optional {@code flowTolerance} still limit the number of
  * recalculations; the {@code capacityChangeEvents} columns of the outputs count them.
  * <h2>Output network</h2>
@@ -535,7 +535,7 @@ public class KerbParkingCapacityEffect implements StartupListener, IterationEnds
 		return totalChangeEvents;
 	}
 
-	/** Change events that changed flow capacity and lanes, each of which resets the link's outflow accumulator. */
+	/** Change events that changed flow capacity and lanes, each of which makes the link recalculate its capacities. */
 	long getCapacityChangeEvents() {
 		return capacityChangeEvents;
 	}
