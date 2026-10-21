@@ -33,7 +33,9 @@ import java.util.Map;
  * Occupancy is kept both as a single total per link, which is what {@link #getParkingCount} reports and what the
  * search-time functions consume, and as two pools: on-street (kerb) and off-street. A parking vehicle takes an
  * on-street space if one is free and spills to off-street otherwise; the off-street pool is unbounded here, so a
- * vehicle is never refused. The pool a vehicle parked in is remembered, so its departure releases the right pool.
+ * vehicle is never refused. The pool and link a vehicle parked in are remembered, so its departure releases the right
+ * pool on the right link. A vehicle never seen parking holds no space, so its departure releases nothing, unless it
+ * can be one of the vehicles seeded as initial occupancy on its departure link.
  * The peak off-street occupancy per link is the size of off-street supply the link would have needed.
  */
 public class ParkingOccupancyObserver implements MobsimScopeEventHandler, VehicleEntersTrafficEventHandler, VehicleEndsParkingSearchEventHandler, BeforeMobsimListener, MobsimBeforeSimStepListener {
@@ -74,8 +76,17 @@ public class ParkingOccupancyObserver implements MobsimScopeEventHandler, Vehicl
 	int[] nonParkablePeakOccupancy;
 	/** How many parking events on the link happened where kerb parking is not possible at all. */
 	int[] nonParkableArrivalEvents;
-	/** Which pool each currently parked vehicle occupies. Absent for vehicles seeded as initial occupancy. */
-	private final Map<Id<Vehicle>, Boolean> parkedOnStreetByVehicle = new HashMap<>();
+	/**
+	 * Seeded initial occupancy not yet released, per pool. Seeded vehicles are not known by id, so these are the only
+	 * spaces a vehicle never seen parking can release.
+	 */
+	int[] unclaimedSeededOnStreet;
+	int[] unclaimedSeededOffStreet;
+	/** Where each currently parked vehicle is: link and pool. Absent for vehicles seeded as initial occupancy. */
+	private final Map<Id<Vehicle>, ParkedVehicle> parkedByVehicle = new HashMap<>();
+
+	private record ParkedVehicle(int index, boolean onStreet) {
+	}
 
 	double lastTimeStep = -1;
 
@@ -102,23 +113,30 @@ public class ParkingOccupancyObserver implements MobsimScopeEventHandler, Vehicl
 	public synchronized void handleEvent(VehicleEntersTrafficEvent event) {
 		checkTime(event.getTime());
 
-		// unpark vehicle
-		int index = indexByLinkId.get(event.getLinkId());
-
-		// We might have initialized to little initial parking, thus more vehicles enter traffic than expected. In this case, we just ignore the event.
-		if (parkingOccupancy[index] <= 0) {
-			parkedOnStreetByVehicle.remove(event.getVehicleId());
+		// unpark vehicle: a vehicle seen parking releases its own pool on the link where it parked
+		ParkedVehicle parked = parkedByVehicle.remove(event.getVehicleId());
+		if (parked != null) {
+			release(parked.index(), parked.onStreet());
 			return;
 		}
-		parkingOccupancy[index]--;
 
-		Boolean wasOnStreet = parkedOnStreetByVehicle.remove(event.getVehicleId());
-		if (wasOnStreet == null) {
-			// Seeded as initial occupancy, so its pool is unknown. Initial occupancy filled on-street first, so
-			// release in the same order the unknown vehicles were seeded: on-street while any remains, then off-street.
-			wasOnStreet = onStreetOccupancy[index] > 0;
+		// Never seen parking: a first departure, a truck, freight. It can only hold a space if it is one of the vehicles
+		// seeded as initial occupancy on this link. Initial occupancy filled on-street first, so release seeded spaces in
+		// the same order. Once the link has no unclaimed seeded space the event is ignored; releasing anyway would free
+		// a space held by a vehicle that is still parked.
+		int index = indexByLinkId.get(event.getLinkId());
+		if (unclaimedSeededOnStreet[index] > 0) {
+			unclaimedSeededOnStreet[index]--;
+			release(index, true);
+		} else if (unclaimedSeededOffStreet[index] > 0) {
+			unclaimedSeededOffStreet[index]--;
+			release(index, false);
 		}
-		if (wasOnStreet) {
+	}
+
+	private void release(int index, boolean onStreet) {
+		parkingOccupancy[index]--;
+		if (onStreet) {
 			onStreetOccupancy[index]--;
 		} else {
 			offStreetOccupancy[index]--;
@@ -150,7 +168,7 @@ public class ParkingOccupancyObserver implements MobsimScopeEventHandler, Vehicl
 				nonParkablePeakOccupancy[index] = Math.max(nonParkablePeakOccupancy[index], nonParkableOccupancy[index]);
 			}
 		}
-		parkedOnStreetByVehicle.put(event.getVehicleId(), onStreet);
+		parkedByVehicle.put(event.getVehicleId(), new ParkedVehicle(index, onStreet));
 	}
 
 	@Override
@@ -200,7 +218,9 @@ public class ParkingOccupancyObserver implements MobsimScopeEventHandler, Vehicl
 		nonParkableOccupancy = new int[linkCount];
 		nonParkablePeakOccupancy = new int[linkCount];
 		nonParkableArrivalEvents = new int[linkCount];
-		parkedOnStreetByVehicle.clear();
+		unclaimedSeededOnStreet = new int[linkCount];
+		unclaimedSeededOffStreet = new int[linkCount];
+		parkedByVehicle.clear();
 
 		Map<Id<Link>, ParkingCapacityInitializer.ParkingInitialPools> initialPools = parkingCapacityInitializer.initializePools();
 		writeInitialParkingOccupancy(iteration, initialPools);
@@ -221,6 +241,8 @@ public class ParkingOccupancyObserver implements MobsimScopeEventHandler, Vehicl
 			onStreetOccupancy[index] = Math.min(occupancy, pools.onStreetCapacity());
 			offStreetOccupancy[index] = occupancy - onStreetOccupancy[index];
 			offStreetPeakOccupancy[index] = offStreetOccupancy[index];
+			unclaimedSeededOnStreet[index] = onStreetOccupancy[index];
+			unclaimedSeededOffStreet[index] = offStreetOccupancy[index];
 			if (!kerbParkingPermitted[index]) {
 				nonParkableOccupancy[index] = offStreetOccupancy[index];
 				nonParkablePeakOccupancy[index] = offStreetOccupancy[index];

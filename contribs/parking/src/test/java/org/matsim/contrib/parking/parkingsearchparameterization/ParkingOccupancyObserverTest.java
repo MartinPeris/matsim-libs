@@ -159,7 +159,138 @@ class ParkingOccupancyObserverTest {
 			"three departures from an empty link should leave occupancy at zero, not negative");
 	}
 
+	/**
+	 * The city starts empty, so a vehicle never seen parking holds no space. A car's first departure of the day must
+	 * not free the space of a car that is still parked on the same link.
+	 */
+	@Test
+	void emptyCityDepartureByNeverParkedVehicleReleasesNothing() {
+		Id<Link> linkId = Id.createLinkId("l");
+
+		ParkingOccupancyObserver parkingOccupancyObserver = getParkingObserver();
+		parkingOccupancyObserver.notifyMobsimBeforeSimStep(new MobsimBeforeSimStepEvent(null, 10));
+		parkingOccupancyObserver.handleEvent(new VehicleEndsParkingSearch(10, Id.createPersonId("p"), linkId, Id.createVehicleId("parked"), "car"));
+		parkingOccupancyObserver.notifyMobsimBeforeSimStep(new MobsimBeforeSimStepEvent(null, 20));
+		parkingOccupancyObserver.handleEvent(new VehicleEntersTrafficEvent(20, Id.createPersonId("q"), linkId, Id.createVehicleId("firstDeparture"), "car", 0));
+
+		assertEquals(1, parkingOccupancyObserver.getOnStreetOccupancy(linkId), "the parked car still holds its kerb space");
+		assertEquals(0, parkingOccupancyObserver.getOffStreetOccupancy(linkId));
+		parkingOccupancyObserver.notifyMobsimBeforeSimStep(new MobsimBeforeSimStepEvent(null, 21));
+		assertEquals(Map.of(linkId, new ParkingCount(1, 2, 1.0)), parkingOccupancyObserver.getParkingCount(21, Map.of(linkId, 1.0)));
+	}
+
+	/**
+	 * A parked car releases the pool it parked in, on the link where it parked, even if it enters traffic elsewhere.
+	 */
+	@Test
+	void parkedCarReleasesItsOwnPool() {
+		Id<Link> linkId = Id.createLinkId("l");
+		Id<Link> otherLinkId = Id.createLinkId("m");
+
+		Network network = createNetwork();
+		Node node2 = NetworkUtils.createNode(Id.createNodeId("2"), new Coord(0, 200));
+		network.addNode(node2);
+		network.addLink(NetworkUtils.createLink(otherLinkId, network.getNodes().get(Id.createNodeId("1")), node2, network, 100, 10, 10, 1));
+		ParkingOccupancyObserver parkingOccupancyObserver = getParkingObserver(network, new ZeroParkingCapacityInitializer(network, ConfigUtils.createConfig()));
+
+		parkingOccupancyObserver.notifyMobsimBeforeSimStep(new MobsimBeforeSimStepEvent(null, 10));
+		for (String v : new String[]{"kerb1", "kerb2", "lot"}) {
+			parkingOccupancyObserver.handleEvent(new VehicleEndsParkingSearch(10, Id.createPersonId(v), linkId, Id.createVehicleId(v), "car"));
+		}
+		assertEquals(2, parkingOccupancyObserver.getOnStreetOccupancy(linkId));
+		assertEquals(1, parkingOccupancyObserver.getOffStreetOccupancy(linkId));
+
+		parkingOccupancyObserver.notifyMobsimBeforeSimStep(new MobsimBeforeSimStepEvent(null, 20));
+		parkingOccupancyObserver.handleEvent(new VehicleEntersTrafficEvent(20, Id.createPersonId("lot"), otherLinkId, Id.createVehicleId("lot"), "car", 0));
+		assertEquals(2, parkingOccupancyObserver.getOnStreetOccupancy(linkId), "the kerb cars are still there");
+		assertEquals(0, parkingOccupancyObserver.getOffStreetOccupancy(linkId), "the off-street car left the link it parked on");
+		assertEquals(0, parkingOccupancyObserver.getOnStreetOccupancy(otherLinkId));
+		assertEquals(0, parkingOccupancyObserver.getOffStreetOccupancy(otherLinkId));
+
+		parkingOccupancyObserver.handleEvent(new VehicleEntersTrafficEvent(20, Id.createPersonId("kerb1"), linkId, Id.createVehicleId("kerb1"), "car", 0));
+		assertEquals(1, parkingOccupancyObserver.getOnStreetOccupancy(linkId));
+		assertEquals(0, parkingOccupancyObserver.getOffStreetOccupancy(linkId));
+	}
+
+	/**
+	 * Seeded initial occupancy has no vehicle ids, so a vehicle never seen parking may release it, kerb first as it
+	 * was seeded, until the link's seeded spaces are used up. It never releases a space taken by a car seen parking.
+	 */
+	@Test
+	void seededOccupancyCanStillBeReleased() {
+		Id<Link> linkId = Id.createLinkId("l");
+
+		Network network = createNetwork();
+		ParkingCapacityInitializer seeded = new ParkingCapacityInitializer() {
+			@Override
+			public Map<Id<Link>, ParkingInitialCapacity> initialize() {
+				return Map.of(linkId, new ParkingInitialCapacity(1, 2));
+			}
+
+			@Override
+			public Map<Id<Link>, ParkingInitialPools> initializePools() {
+				return Map.of(linkId, new ParkingInitialPools(1, 0, 2));
+			}
+		};
+		ParkingOccupancyObserver parkingOccupancyObserver = getParkingObserver(network, seeded);
+		assertEquals(1, parkingOccupancyObserver.getOnStreetOccupancy(linkId));
+		assertEquals(1, parkingOccupancyObserver.getOffStreetOccupancy(linkId));
+
+		parkingOccupancyObserver.notifyMobsimBeforeSimStep(new MobsimBeforeSimStepEvent(null, 10));
+		parkingOccupancyObserver.handleEvent(new VehicleEntersTrafficEvent(10, Id.createPersonId("s1"), linkId, Id.createVehicleId("seed1"), "car", 0));
+		assertEquals(0, parkingOccupancyObserver.getOnStreetOccupancy(linkId), "the seeded kerb space is released first");
+		assertEquals(1, parkingOccupancyObserver.getOffStreetOccupancy(linkId));
+
+		parkingOccupancyObserver.handleEvent(new VehicleEndsParkingSearch(10, Id.createPersonId("p"), linkId, Id.createVehicleId("parked"), "car"));
+		assertEquals(1, parkingOccupancyObserver.getOnStreetOccupancy(linkId), "the parked car takes the freed kerb space");
+
+		parkingOccupancyObserver.handleEvent(new VehicleEntersTrafficEvent(10, Id.createPersonId("s2"), linkId, Id.createVehicleId("seed2"), "car", 0));
+		assertEquals(1, parkingOccupancyObserver.getOnStreetOccupancy(linkId), "the parked car keeps its kerb space");
+		assertEquals(0, parkingOccupancyObserver.getOffStreetOccupancy(linkId), "the remaining seeded space was off-street");
+
+		parkingOccupancyObserver.handleEvent(new VehicleEntersTrafficEvent(10, Id.createPersonId("s3"), linkId, Id.createVehicleId("stranger"), "car", 0));
+		assertEquals(1, parkingOccupancyObserver.getOnStreetOccupancy(linkId), "no seeded space is left to release");
+		assertEquals(0, parkingOccupancyObserver.getOffStreetOccupancy(linkId));
+
+		parkingOccupancyObserver.handleEvent(new VehicleEntersTrafficEvent(10, Id.createPersonId("p"), linkId, Id.createVehicleId("parked"), "car", 0));
+		assertEquals(0, parkingOccupancyObserver.getOnStreetOccupancy(linkId));
+		assertEquals(0, parkingOccupancyObserver.getOffStreetOccupancy(linkId));
+	}
+
+	/**
+	 * Trucks and freight vehicles enter traffic but never park in this model. Their departures must not free spaces
+	 * held by parked cars, whichever pool those cars are in.
+	 */
+	@Test
+	void truckCannotFreeAParkedCarsSpace() {
+		Id<Link> linkId = Id.createLinkId("l");
+
+		ParkingOccupancyObserver parkingOccupancyObserver = getParkingObserver();
+		parkingOccupancyObserver.notifyMobsimBeforeSimStep(new MobsimBeforeSimStepEvent(null, 10));
+		for (String v : new String[]{"kerb1", "kerb2", "lot"}) {
+			parkingOccupancyObserver.handleEvent(new VehicleEndsParkingSearch(10, Id.createPersonId(v), linkId, Id.createVehicleId(v), "car"));
+		}
+
+		parkingOccupancyObserver.notifyMobsimBeforeSimStep(new MobsimBeforeSimStepEvent(null, 20));
+		for (int i = 0; i < 3; i++) {
+			parkingOccupancyObserver.handleEvent(new VehicleEntersTrafficEvent(20, Id.createPersonId("driver" + i), linkId, Id.createVehicleId("truck" + i), "truck", 0));
+		}
+		assertEquals(2, parkingOccupancyObserver.getOnStreetOccupancy(linkId), "the trucks freed no kerb space");
+		assertEquals(1, parkingOccupancyObserver.getOffStreetOccupancy(linkId), "nor the off-street space");
+
+		for (String v : new String[]{"lot", "kerb1", "kerb2"}) {
+			parkingOccupancyObserver.handleEvent(new VehicleEntersTrafficEvent(20, Id.createPersonId(v), linkId, Id.createVehicleId(v), "car", 0));
+		}
+		assertEquals(0, parkingOccupancyObserver.getOnStreetOccupancy(linkId), "each car released its own space");
+		assertEquals(0, parkingOccupancyObserver.getOffStreetOccupancy(linkId));
+	}
+
 	private ParkingOccupancyObserver getParkingObserver() {
+		Network network = createNetwork();
+		return getParkingObserver(network, new ZeroParkingCapacityInitializer(network, ConfigUtils.createConfig()));
+	}
+
+	private static Network createNetwork() {
 		Network network = NetworkUtils.createNetwork();
 
 		Node node0 = NetworkUtils.createNode(Id.createNodeId("0"), new Coord(0, 0));
@@ -172,9 +303,10 @@ class ParkingOccupancyObserverTest {
 		network.addNode(node0);
 		network.addNode(node1);
 		network.addLink(l);
+		return network;
+	}
 
-		ParkingCapacityInitializer parkingCapacityInitializer = new ZeroParkingCapacityInitializer(network, ConfigUtils.createConfig());
-
+	private ParkingOccupancyObserver getParkingObserver(Network network, ParkingCapacityInitializer parkingCapacityInitializer) {
 		Config config = ConfigUtils.createConfig();
 		config.controller().setOutputDirectory(utils.getOutputDirectory());
 
