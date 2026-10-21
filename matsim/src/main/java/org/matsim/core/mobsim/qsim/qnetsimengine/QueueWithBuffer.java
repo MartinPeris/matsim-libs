@@ -482,6 +482,7 @@ final class QueueWithBuffer implements QLaneI, SignalizeableItem {
 		// The following is not adjusted for time-dependence!! kai, apr'16
 		// No, I think that it simply assumes that the lookups are "now". kai, feb'18
 //		double now = context.getSimTimer().getTimeOfDay() ;
+		final double previousStorageCapacity = this.storageCapacity;
 
 		// first guess at storageCapacity:
 		storageCapacity = this.length * this.effectiveNumberOfLanesUsedInQsim / context.effectiveCellSize * context.qsimConfig.getStorageCapFactor();
@@ -559,7 +560,11 @@ final class QueueWithBuffer implements QLaneI, SignalizeableItem {
 					qLinkInternalInterface.getLink().getAttributes().putAttribute("storageCapacityUsedInQsim", storageCapacity);
 				}
 
-				remainingHolesStorageCapacity = this.storageCapacity;
+				// Shift by the change in storage rather than resetting to it: the vehicles on the link and the holes still
+				// travelling upstream keep their claim on the new storage. On the first call both values are 0, so this is
+				// the old initialisation; on a later change (time-variant network) a reset forgot them and let the link
+				// accept as if it were empty. (kerb parking capacity effect, oct'26)
+				remainingHolesStorageCapacity += this.storageCapacity - previousStorageCapacity;
 				// yyyy how is this.storageCapacity supposed to have a value here?  (It might just be zero, and
 				// maybe this is the correct value, but the code is not very expressive.)  kai, mar'17
 				// i think, at this location, this explains everything. amit mar'17
@@ -772,9 +777,19 @@ final class QueueWithBuffer implements QLaneI, SignalizeableItem {
 
 //		log.debug("just entered recalcTimeVariantAttributes; now=" + this.context.getSimTimer().getTimeOfDay() ) ;
 
+		// Keep the outflow debt across a change. Setting the accumulator to one full time step here, as this method used
+		// to, forgave the debt the last departing vehicle left and released the next queued vehicle early, so every
+		// change event on a queued link let up to one extra vehicle out. Where flow capacity is well under one vehicle
+		// per time step (any sample run) and changes are frequent, this undid most of a capacity reduction, or more.
+		// Cap the accumulator at one step of the new rate and otherwise leave it, and its time stamp, alone. Under the fast
+		// capacity update the time since the last accrual is then credited at the new rate, an approximation of at most
+		// one accrual interval times the change in rate. Bringing the accumulator up to date at the old rate here would
+		// be more exact but is not neutral: it caps the value by the vehicles in the buffer at the start of the step, and
+		// then even a change to the same value shifts leave times (NetworkChangeEventKeepsQueueStateTest).
+		// (kerb parking capacity effect, oct'26)
 		calculateFlowCapacity();
 		calculateStorageCapacity();
-		flowcap_accumulate.setValue(flowCapacityPerTimeStep);
+		flowcap_accumulate.setValue(Math.min(flowcap_accumulate.getValue(), flowCapacityPerTimeStep));
 	}
 
 //	@Override
